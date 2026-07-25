@@ -242,28 +242,24 @@ const Settings: React.FC<SettingsProps> = ({
                 <Sparkles size={8} /> Autosaved
               </span>
             </div>
-            {/* Currency Selector */}
-            <div className="space-y-2">
-               <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1 flex items-center justify-between">
-                 <span>Active Currency Protocol</span>
-                 <span className="text-brand-primary font-black">{settings.currency} ({getCurrencySymbol(settings.currency)})</span>
-               </p>
-               <div className="grid grid-cols-5 gap-1.5 bg-brand-accent p-1.5 rounded-xl border border-brand-border">
-                 {SUPPORTED_CURRENCIES.map(curr => (
-                   <button
-                     key={curr.code}
-                     onClick={() => { triggerHaptic(); onUpdateCurrency(curr.code); }}
-                     title={curr.name}
-                     className={`py-2 px-1 rounded-lg text-center flex flex-col items-center justify-center transition-all ${
-                       settings.currency === curr.code
-                         ? 'bg-brand-primary text-brand-headerText font-black shadow-md scale-[1.02]'
-                         : 'text-slate-500 hover:text-brand-text font-bold opacity-70 hover:opacity-100'
-                     }`}
-                   >
-                     <span className="text-xs font-black leading-none mb-0.5">{curr.symbol}</span>
-                     <span className="text-[7px] font-extrabold uppercase leading-none tracking-tighter">{curr.code}</span>
-                   </button>
-                 ))}
+            {/* Currency Dropdown */}
+            <div className="space-y-1.5">
+               <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Currency</p>
+               <div className="relative">
+                 <select
+                   value={settings.currency}
+                   onChange={(e) => { triggerHaptic(); onUpdateCurrency(e.target.value); }}
+                   className="w-full bg-brand-accent px-3.5 py-3 rounded-xl text-xs font-black outline-none border border-brand-border text-brand-text shadow-inner appearance-none cursor-pointer pr-10"
+                 >
+                   {SUPPORTED_CURRENCIES.map(curr => (
+                     <option key={curr.code} value={curr.code} className="bg-brand-surface text-brand-text font-bold">
+                       {curr.name} ({curr.symbol} {curr.code})
+                     </option>
+                   ))}
+                 </select>
+                 <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                   <ChevronRight size={14} className="rotate-90" />
+                 </div>
                </div>
             </div>
 
@@ -331,37 +327,90 @@ const Settings: React.FC<SettingsProps> = ({
           </div>
         </section>
 
-        {/* Data Vault */}
+        {/* Storage Options */}
         <section className={sectionClass}>
-          <div className="p-4">
-            <h3 className={labelClass}><Database size={12} /> Data Vault</h3>
-            <div className="grid grid-cols-3 gap-2">
-                <button onClick={() => { triggerHaptic(); onLoadMockData(); }} className={vaultButtonClass}>
-                  <Sparkles size={16} className="text-brand-accentUi group-hover:animate-pulse" />
-                  <span className="text-[8px] font-black uppercase text-brand-text">Mock Data</span>
-                </button>
-                <button onClick={() => { triggerHaptic(); onExport(); }} className={vaultButtonClass}>
-                  <Download size={16} className="text-brand-primary" />
-                  <span className="text-[8px] font-black uppercase text-brand-text">Backup</span>
-                </button>
-                <button onClick={() => { triggerHaptic(); jsonInputRef.current?.click(); }} className={vaultButtonClass}>
-                  <History size={16} className="text-brand-primary" />
-                  <span className="text-[8px] font-black uppercase text-brand-text">Restore</span>
-                </button>
-                <input type="file" ref={jsonInputRef} onChange={handleJSONChange} className="hidden" accept=".json,application/json" />
-                
-                <button onClick={() => { triggerHaptic(); onOpenCategoryManager(); }} className={vaultButtonClass}>
-                  <Tag size={16} className="text-brand-primary" />
-                  <span className="text-[8px] font-black uppercase text-brand-text">Tags</span>
-                </button>
-                <button onClick={() => { triggerHaptic(); onPurgeMockData(); }} className={vaultButtonClass}>
-                  <Trash2 size={16} className="text-rose-500" />
-                  <span className="text-[8px] font-black uppercase text-brand-text">Scrub</span>
-                </button>
-                <button onClick={() => { triggerHaptic(); onReset(); }} className={`${vaultButtonClass} border-rose-500/30 text-rose-500`}>
-                  <ShieldAlert size={16} />
-                  <span className="text-[8px] font-black uppercase">Reset</span>
-                </button>
+          <div className="p-4 space-y-3">
+            <div>
+              <h3 className={labelClass}><Database size={12} /> Storage Options</h3>
+              <p className="text-[8px] font-medium text-slate-400 px-2 mt-0.5">
+                Export backups, restore previous data, or manage sample data
+              </p>
+            </div>
+
+            <input type="file" ref={jsonInputRef} onChange={handleJSONChange} className="hidden" accept=".json,application/json" />
+
+            {/* Main Data Management Actions */}
+            <div className="grid grid-cols-2 gap-2">
+              <button 
+                onClick={() => { triggerHaptic(); onExport(); }} 
+                className="flex items-center gap-2.5 p-3 rounded-xl bg-brand-surface border border-brand-border hover:bg-brand-accent/50 transition-all text-left group cursor-pointer"
+              >
+                <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 shrink-0">
+                  <Download size={16} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-brand-text uppercase tracking-tight">Export Backup</p>
+                  <p className="text-[8px] font-medium text-slate-400">Save data to JSON file</p>
+                </div>
+              </button>
+
+              <button 
+                onClick={() => { triggerHaptic(); jsonInputRef.current?.click(); }} 
+                className="flex items-center gap-2.5 p-3 rounded-xl bg-brand-surface border border-brand-border hover:bg-brand-accent/50 transition-all text-left group cursor-pointer"
+              >
+                <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 shrink-0">
+                  <Upload size={16} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-brand-text uppercase tracking-tight">Restore Backup</p>
+                  <p className="text-[8px] font-medium text-slate-400">Import saved JSON file</p>
+                </div>
+              </button>
+
+              <button 
+                onClick={() => { triggerHaptic(); onOpenCategoryManager(); }} 
+                className="flex items-center gap-2.5 p-3 rounded-xl bg-brand-surface border border-brand-border hover:bg-brand-accent/50 transition-all text-left group cursor-pointer"
+              >
+                <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 shrink-0">
+                  <Tag size={16} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-brand-text uppercase tracking-tight">Category Tags</p>
+                  <p className="text-[8px] font-medium text-slate-400">Manage categories & rules</p>
+                </div>
+              </button>
+
+              <button 
+                onClick={() => { triggerHaptic(); onLoadMockData(); }} 
+                className="flex items-center gap-2.5 p-3 rounded-xl bg-brand-surface border border-brand-border hover:bg-brand-accent/50 transition-all text-left group cursor-pointer"
+              >
+                <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400 shrink-0">
+                  <Sparkles size={16} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-brand-text uppercase tracking-tight">Load Sample Data</p>
+                  <p className="text-[8px] font-medium text-slate-400">Add demo transactions</p>
+                </div>
+              </button>
+            </div>
+
+            {/* Cleanup / Reset Actions */}
+            <div className="pt-2 border-t border-brand-border/60 flex items-center justify-between gap-2">
+              <button 
+                onClick={() => { triggerHaptic(); onPurgeMockData(); }}
+                className="flex-1 py-2 px-3 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-[9px] font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 size={12} />
+                Clear Sample Data
+              </button>
+
+              <button 
+                onClick={() => { triggerHaptic(); onReset(); }}
+                className="flex-1 py-2 px-3 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 border border-rose-500/30 text-[9px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <ShieldAlert size={12} />
+                Reset App Data
+              </button>
             </div>
           </div>
         </section>
