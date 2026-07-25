@@ -1,0 +1,852 @@
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Expense, Income, Category, UserSettings, WealthItem, Notification, BudgetRule, Bill } from '../types';
+import { CATEGORY_COLORS, getCurrencySymbol, DEFAULT_CATEGORIES } from '../constants';
+import { 
+  Trash2, Search, X, Sparkles, Loader2, 
+  Banknote, Zap,
+  ChevronLeft, ChevronRight,
+  FilterX,
+  PieChart as PieChartIcon,
+  BrainCircuit,
+  LayoutList, BarChart3,
+  Wand2,
+  TrendingDown,
+  Plus,
+  ChevronRight as ChevronRightIcon,
+  Check,
+  History,
+  FileText,
+  Copy,
+  AlertTriangle,
+  Play,
+  ArrowRight,
+  Edit2,
+  ShieldCheck,
+  Upload,
+  CalendarDays,
+  CheckSquare,
+  Square,
+  Tag,
+  ChevronDown,
+  Layers,
+  Settings2,
+  SlidersHorizontal,
+  Flame
+} from 'lucide-react';
+import { auditTransaction, refineBatchTransactions } from '../services/geminiService';
+import { triggerHaptic } from '../utils/haptics';
+import { getCategoryIcon } from '../utils/iconUtils';
+import { 
+  ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend
+} from 'recharts';
+
+interface LedgerProps {
+  expenses: Expense[];
+  incomes: Income[];
+  wealthItems: WealthItem[];
+  bills: Bill[];
+  settings: UserSettings;
+  rules?: BudgetRule[];
+  onDeleteExpense: (id: string) => void;
+  onDeleteIncome: (id: string) => void;
+  onDeleteWealth: (id: string) => void;
+  onConfirm: (id: string, category: Category) => void;
+  onUpdateExpense: (id: string, updates: Partial<Expense>) => void;
+  onBulkUpdateExpense: (ids: string[], updates: Partial<Expense>) => void;
+  onBulkDelete: (ids: string[], type: 'expense' | 'income') => void;
+  onEditRecord: (record: Expense | Income | WealthItem) => void;
+  onAddRecord: () => void;
+  onAddIncome: () => void;
+  onAddBulk: (items: any[]) => void;
+  onViewRule?: (ruleId: string) => void;
+  viewDate: Date;
+  onMonthChange: (direction: number) => void;
+  onGoToDate: (year: number, month: number) => void;
+  addNotification: (notif: Omit<Notification, 'timestamp' | 'read'> & { id?: string }) => void;
+  showToast: (message: string, type?: 'success' | 'error' | 'info' | 'advice') => void;
+  onImport: (file: File) => Promise<void>;
+  onDeduplicate: () => void;
+  initialFilter?: string | null;
+  budgetItems: BudgetItem[];
+}
+
+const BulkEditModal: React.FC<{
+  settings: UserSettings;
+  selectedCount: number;
+  onConfirm: (updates: { category: Category; mainCategory: string; subCategory: string }) => void;
+  onCancel: () => void;
+}> = ({ settings, selectedCount, onConfirm, onCancel }) => {
+  const [bucket, setBucket] = useState<Category>('Needs');
+  const [mainCategory, setMainCategory] = useState('');
+  const [subCategory, setSubCategory] = useState('General');
+
+  const categories = settings.customCategories || DEFAULT_CATEGORIES;
+  const mainOptions = useMemo(() => Object.keys(categories[bucket] || {}).sort(), [bucket, categories]);
+  const subOptions = useMemo(() => (categories[bucket]?.[mainCategory] || ['General']).sort(), [bucket, mainCategory, categories]);
+
+  useEffect(() => {
+    if (!mainOptions.includes(mainCategory)) setMainCategory(mainOptions[0] || '');
+  }, [mainOptions, mainCategory]);
+
+  useEffect(() => {
+    if (!subOptions.includes(subCategory)) setSubCategory(subOptions[0] || 'General');
+  }, [subOptions, subCategory]);
+
+  const handleApply = () => {
+    triggerHaptic(50);
+    onConfirm({ category: bucket, mainCategory, subCategory });
+  };
+
+  const selectClass = "w-full bg-brand-accent p-2.5 rounded-xl text-[10px] font-black outline-none border border-brand-border text-brand-text appearance-none cursor-pointer focus:border-brand-accentUi/40 transition-all shadow-inner";
+  const labelClass = "text-[7px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-1 block";
+
+  return (
+    <div className="fixed inset-0 z-[600] bg-black/70 backdrop-blur-md flex items-start justify-center p-4 pt-[150px]">
+      <div className="bg-brand-surface w-full max-w-sm rounded-[32px] border-2 border-brand-accentUi/50 shadow-[0_40px_80px_rgba(0,0,0,0.8)] overflow-hidden animate-slide-up relative bg-gradient-to-br from-brand-surface via-brand-surface to-brand-accentUi/5">
+        {/* COMPACT GRADIENT POPUP HEADER */}
+        <div className="bg-gradient-to-br from-brand-accentUi/30 via-brand-surface to-brand-surface px-6 py-4 border-b border-brand-accentUi/20 flex justify-between items-center relative overflow-hidden">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-brand-accentUi text-brand-bg rounded-xl shadow-[0_2px_12px_rgba(var(--brand-accent-ui-rgb),0.4)]">
+              <Settings2 size={18} strokeWidth={3} />
+            </div>
+            <div>
+              <h3 className="text-[12px] font-black uppercase tracking-[0.1em] text-brand-text leading-none">Bulk Edit</h3>
+              <p className="text-[7px] font-bold text-brand-accentUi uppercase tracking-widest mt-1.5">{selectedCount} Records Targeted</p>
+            </div>
+          </div>
+          <button onClick={onCancel} className="p-1.5 bg-brand-surface/80 border border-brand-border rounded-full text-slate-500 active:scale-90 transition-transform"><X size={16} strokeWidth={3} /></button>
+        </div>
+        
+        <div className="p-5 space-y-5">
+          <div>
+            <span className={labelClass}>Registry Bucket</span>
+            <div className="grid grid-cols-3 gap-2">
+              {(['Needs', 'Wants', 'Savings'] as Category[]).map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => { triggerHaptic(); setBucket(cat); }}
+                  className={`py-2.5 rounded-xl text-[9px] font-black uppercase border transition-all ${bucket === cat ? 'bg-brand-accentUi border-brand-accentUi text-brand-bg shadow-lg scale-[1.02]' : 'bg-brand-accent border-brand-border text-slate-500 hover:text-brand-text'}`}
+                >
+                  {cat === 'Savings' ? 'Saves' : cat}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="group">
+              <span className={labelClass}>Primary Node</span>
+              <div className="relative">
+                <select value={mainCategory} onChange={(e) => setMainCategory(e.target.value)} className={selectClass}>
+                  {mainOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+                <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none group-focus-within:text-brand-accentUi" />
+              </div>
+            </div>
+            <div className="group">
+              <span className={labelClass}>Sub Node Point</span>
+              <div className="relative">
+                <select value={subCategory} onChange={(e) => setSubCategory(e.target.value)} className={selectClass}>
+                  {subOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+                <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none group-focus-within:text-brand-accentUi" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-brand-accentUi/20 bg-brand-accentUi/5 flex gap-3">
+          <button onClick={onCancel} className="flex-1 py-3 text-[9px] font-black uppercase text-slate-500 hover:text-brand-text transition-colors">Dismiss</button>
+          <button 
+            onClick={handleApply}
+            className="flex-[2.5] py-3.5 bg-brand-accentUi text-brand-bg font-black rounded-2xl text-[10px] uppercase tracking-[0.1em] shadow-[0_8px_20px_-4px_rgba(var(--brand-accent-ui-rgb),0.5)] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+          >
+            <Check size={16} strokeWidth={4} /> Update Master Records
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SwipeableItem: React.FC<{
+  item: any;
+  recordType: 'expense' | 'income' | 'transfer' | 'bill_payment' | 'balance';
+  currencySymbol: string;
+  onDelete: (id: string) => void;
+  onEdit: (item: any) => void;
+  onUpdateExpense?: (id: string, updates: Partial<Expense>) => void;
+  aiSuggestion?: { 
+    category: Category; 
+    mainCategory: string; 
+    subCategory: string; 
+    merchant: string; 
+    note: string;
+    potentialAvoid?: boolean; 
+    isDuplicateOf?: string;
+  };
+  density: string;
+  pendingBills: Bill[];
+  isSelected?: boolean;
+  isSelectionMode?: boolean;
+  onToggleSelect?: (id: string) => void;
+}> = ({ item, recordType, currencySymbol, onDelete, onEdit, onUpdateExpense, aiSuggestion: initialAiSuggestion, density, pendingBills, isSelected, isSelectionMode, onToggleSelect }) => {
+  const [offsetX, setOffsetX] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [localAiSuggestion, setLocalAiSuggestion] = useState<any | null>(null);
+  const [isAuditing, setIsAuditing] = useState(false);
+  const [showFloatingPopup, setShowFloatingPopup] = useState(false);
+  const touchStartX = useRef<number | null>(null);
+  const isCompact = density === 'Compact';
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (isDeleting || isSelectionMode) return;
+    if (e.touches.length > 0) { touchStartX.current = e.touches[0].clientX; setIsSwiping(true); }
+  };
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (isDeleting || isSelectionMode || touchStartX.current === null || e.touches.length === 0) return;
+    const diff = e.touches[0].clientX - touchStartX.current;
+    if (diff < 0) setOffsetX(diff);
+  };
+  const handleTouchEnd = () => {
+    if (isDeleting || isSelectionMode) return;
+    if (offsetX < -75) { triggerHaptic(20); setOffsetX(-1000); setIsDeleting(true); setTimeout(() => onDelete(item.id), 300); }
+    else setOffsetX(0);
+    setIsSwiping(false);
+    touchStartX.current = null;
+  };
+
+  const handleItemAudit = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isAuditing || recordType !== 'expense') return;
+    triggerHaptic();
+    setIsAuditing(true);
+    try {
+      const budgetCtx = getBudgetContext();
+      const result = await auditTransaction(item, currencySymbol, budgetCtx);
+      if (result) {
+        setLocalAiSuggestion({
+          category: result.suggestedCategory,
+          mainCategory: result.suggestedMainCategory,
+          subCategory: result.suggestedSubCategory,
+          merchant: result.merchant || item.merchant,
+          note: item.note, 
+          potentialAvoid: result.potentialAvoid
+        });
+        setShowFloatingPopup(true);
+      }
+    } catch (err) {
+    } finally {
+      setIsAuditing(false);
+    }
+  };
+
+  const activeAiSuggestion = localAiSuggestion || initialAiSuggestion;
+
+  const handleApplyAiSuggestion = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    triggerHaptic(40);
+    if (activeAiSuggestion && onUpdateExpense) {
+      if (activeAiSuggestion.isDuplicateOf) {
+        onDelete(item.id);
+      } else {
+        onUpdateExpense(item.id, {
+          isConfirmed: true,
+          category: activeAiSuggestion.category,
+          mainCategory: activeAiSuggestion.mainCategory,
+          subCategory: activeAiSuggestion.subCategory,
+          merchant: activeAiSuggestion.merchant,
+          note: activeAiSuggestion.note,
+          isAIUpgraded: true
+        });
+      }
+      setShowFloatingPopup(false);
+    }
+  };
+
+  const amount = item.amount || 0;
+  const parentCategory = recordType === 'expense' ? item.category : 'Uncategorized';
+  const themeColor = recordType === 'income' ? '#10b981' : (recordType === 'transfer' || recordType === 'bill_payment') ? '#6366f1' : CATEGORY_COLORS[parentCategory as Category] || '#94a3b8';
+  
+  const isAIUpgraded = item.isAIUpgraded;
+  const isAvoidFlagged = item.isAvoid || activeAiSuggestion?.potentialAvoid;
+  const isDuplicate = !!activeAiSuggestion?.isDuplicateOf;
+  const hasDistinctNote = item.note && item.note !== item.merchant && item.note !== item.subCategory;
+  const isCatDiff = activeAiSuggestion && (item.mainCategory !== activeAiSuggestion.mainCategory || item.subCategory !== activeAiSuggestion.subCategory);
+  const isMerchantDiff = activeAiSuggestion && (item.merchant !== activeAiSuggestion.merchant);
+
+  return (
+    <div className={`relative overflow-hidden transition-all duration-300 ${isDeleting ? 'max-h-0 opacity-0' : 'max-h-[300px] opacity-100'} animate-slide-up`}>
+      <div className="absolute inset-0 bg-rose-500 flex items-center justify-end px-6"><Trash2 className="text-white" size={16} /></div>
+      <div 
+        onClick={() => {
+          if (isSelectionMode && onToggleSelect) {
+            triggerHaptic(10);
+            onToggleSelect(item.id);
+          } else {
+            triggerHaptic();
+            onEdit({ ...item, recordType });
+          }
+        }}
+        className={`relative z-10 px-4 ${isCompact ? 'py-1.5' : 'py-3'} border-b transition-all cursor-pointer flex flex-col gap-1 bg-brand-surface border-brand-border ${isSelected ? 'bg-brand-accent/80 border-l-[6px] border-l-brand-accentUi shadow-inner' : 'active:bg-white/5'}`} 
+        style={{ transform: `translateX(${offsetX}px)`, transition: isSwiping ? 'none' : 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)' }} 
+        onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            {isSelectionMode && (
+              <div className="mr-1 shrink-0">
+                {isSelected ? (
+                  <CheckSquare size={18} className="text-brand-accentUi" /> 
+                ) : (
+                  <Square size={18} className="text-slate-400 dark:text-slate-600" />
+                )}
+              </div>
+            )}
+            <div className="flex items-center gap-2 overflow-hidden flex-1">
+              <div className={`${isCompact ? 'w-7 h-7 p-1 rounded-lg' : 'w-10 h-10 p-2 rounded-xl'} flex items-center justify-center shrink-0`} style={{ backgroundColor: `${themeColor}15`, color: themeColor }}>{getCategoryIcon(parentCategory as any, item.mainCategory, item.subCategory, recordType === 'income' ? item.type : undefined, isCompact ? 14 : 18)}</div>
+              <div className="min-w-0 flex flex-col pt-0.5">
+                <div className="flex items-center gap-1.5 overflow-hidden">
+                  <div className={`flex items-center gap-1 font-extrabold ${isCompact ? 'text-[11px]' : 'text-[12px]'} truncate leading-tight transition-all rounded-md px-1 -mx-1 ${isCatDiff ? 'ring-1 ring-indigo-400/50 bg-indigo-50/5' : ''} ${isAvoidFlagged ? 'text-rose-500 dark:text-rose-400' : 'text-brand-text'}`}>
+                    {recordType === 'income' ? <span>{item.type}</span> : (
+                      <>
+                        <span className="opacity-50">{item.mainCategory || 'General'}</span>
+                        <ChevronRightIcon size={8} className="opacity-30" />
+                        <span>{item.subCategory || (item.category === 'Uncategorized' ? 'Pending' : item.category)}</span>
+                      </>
+                    )}
+                  </div>
+                  {item.ruleId && <Zap size={isCompact ? 6 : 8} className="text-emerald-500 fill-emerald-500" />}
+                  {isAIUpgraded && <Sparkles size={8} className="text-indigo-400" />}
+                  {isDuplicate && <Copy size={8} className="text-rose-400" />}
+                </div>
+                <div className="flex flex-col gap-0.5 mt-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[7px] font-black uppercase px-1.5 py-0.5 rounded truncate max-w-[120px] transition-all border border-brand-border/10 ${isMerchantDiff ? 'ring-1 ring-indigo-500/30 bg-indigo-500/10' : 'bg-brand-accent'} ${isDuplicate ? 'ring-1 ring-rose-500/50 bg-rose-500/10' : ''} ${isAvoidFlagged ? 'text-rose-500' : 'text-slate-500 dark:text-slate-400'}`}>{item.merchant || 'General'}</span>
+                    <p className={`text-[7px] font-bold text-slate-500 uppercase tracking-widest leading-none`}>{new Date(item.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }).toUpperCase()}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 shrink-0 ml-2">
+            <div className="text-right flex flex-col items-end">
+              <p className={`font-black ${isCompact ? 'text-[13px]' : 'text-[15px]'} tracking-tight px-1 rounded transition-all ${isDuplicate ? 'ring-1 ring-rose-500/50 bg-rose-500/5 animate-pulse' : ''} ${recordType === 'income' ? 'text-emerald-500' : (recordType === 'transfer' || recordType === 'bill_payment') ? 'text-indigo-500' : (isAvoidFlagged ? 'text-rose-500' : 'text-brand-text')}`}>
+                {recordType === 'income' ? '+' : '-'}{currencySymbol}{Math.round(amount).toLocaleString()}
+              </p>
+              
+              {recordType === 'expense' && (
+                <div className="flex items-center gap-1.5 mt-1">
+                   <div 
+                     className="px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-widest shadow-inner border border-white/5"
+                     style={{ backgroundColor: `${CATEGORY_COLORS[item.category as Category]}20`, color: CATEGORY_COLORS[item.category as Category] }}
+                   >
+                     {item.category}
+                   </div>
+                   {item.isAvoid && (
+                    <div className="px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-widest bg-rose-500/10 text-rose-500 border border-rose-500/20 flex items-center gap-1 animate-pulse">
+                      <Flame size={8} />
+                      Avoid
+                    </div>
+                   )}
+                   {!isSelectionMode && (
+                    <button onClick={handleItemAudit} className={`transition-all p-1 rounded-md hover:bg-indigo-500/10 active:scale-90 ${activeAiSuggestion ? 'text-indigo-400 animate-pulse' : 'text-slate-600 opacity-60 hover:opacity-100'}`}>
+                      {isAuditing ? <Loader2 size={isCompact ? 10 : 12} className="animate-spin text-indigo-400" /> : <BrainCircuit size={10} />}
+                    </button>
+                   )}
+                </div>
+              )}
+            </div>
+            {!isCompact && !isSelectionMode && <div className="p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 text-slate-300 dark:text-slate-600 group-hover:text-indigo-500 transition-colors"><Edit2 size={12} /></div>}
+          </div>
+        </div>
+        {hasDistinctNote && <div className="flex items-start gap-1.5 mt-1 px-1 opacity-50 overflow-hidden"><FileText size={8} className="shrink-0 mt-0.5" /><p className="text-[8px] font-bold italic truncate text-brand-text">{item.note}</p></div>}
+        {showFloatingPopup && activeAiSuggestion && (
+           <div className={`mt-2 p-2 rounded-xl shadow-xl animate-kick border flex flex-col gap-2 transition-colors ${isDuplicate ? 'bg-rose-600 border-rose-400/30' : 'bg-indigo-600 border-indigo-400/30'}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col min-w-0 mr-2">
+                   <p className="text-[7px] font-black text-white/70 uppercase tracking-widest mb-0.5">{isDuplicate ? 'Redundancy Detected' : activeAiSuggestion.potentialAvoid ? 'Tactical Avoid' : 'Neural Scan Suggestion'}</p>
+                   <div className="flex items-center gap-1.5 text-white">{isCatDiff ? (<div className="flex items-center gap-1"><span className="text-[9px] font-black opacity-50 line-through truncate max-w-[80px]">{item.subCategory || 'General'}</span><ArrowRight size={8} /><span className="text-[10px] font-black uppercase truncate">{activeAiSuggestion.subCategory}</span></div>) : (<p className="text-[9px] font-black text-white uppercase truncate">{isDuplicate ? 'Remove duplicate record' : `${activeAiSuggestion.mainCategory} • ${activeAiSuggestion.subCategory}`}</p>)}</div>
+                   {!isDuplicate && activeAiSuggestion.note && <p className="text-[6px] font-bold text-white/50 italic truncate">"{activeAiSuggestion.note}"</p>}
+                </div>
+                <button onClick={handleApplyAiSuggestion} className="bg-white text-indigo-600 px-3 py-2 rounded-lg text-[8px] font-black uppercase tracking-tight shadow-sm active:scale-95 transition-all shrink-0">{isDuplicate ? 'Purge Record' : 'Apply Overwrite'}</button>
+              </div>
+           </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const Ledger: React.FC<LedgerProps> = ({ 
+  expenses, incomes, wealthItems, bills, settings, rules = [], budgetItems, onDeleteExpense, onDeleteIncome, onConfirm, onUpdateExpense, onBulkUpdateExpense, onBulkDelete, onEditRecord, onAddRecord, onAddIncome, onAddBulk, viewDate, onMonthChange, showToast, onImport, onDeduplicate, initialFilter
+}) => {
+  const [filterType, setFilterType] = useState<'all' | 'expense' | 'income' | 'transfer' | 'bill_payment'>('all');
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(initialFilter || null);
+  const [viewMode, setViewMode] = useState<'list' | 'compare'>('list');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchOpen, setSearchOpen] = useState(false);
+  const [isRefining, setIsRefining] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [batchSuggestions, setBatchSuggestions] = useState<Record<string, any>>({});
+  const [isShowingAISuggestionsOnly, setIsShowingAISuggestionsOnly] = useState(false);
+  
+  // Bulk selection states
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [isBulkEditing, setIsBulkEditing] = useState(false);
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const currencySymbol = getCurrencySymbol(settings.currency);
+  const monthLabel = `${viewDate.toLocaleDateString(undefined, { month: 'short' }).toUpperCase()} '${viewDate.getFullYear().toString().slice(-2)}`;
+  const isCompact = settings.density === 'Compact';
+
+  useEffect(() => { 
+    setBatchSuggestions({}); 
+    setIsShowingAISuggestionsOnly(false); 
+    setSelectedIds([]);
+    setIsSelectionMode(false);
+    setCategoryFilter(initialFilter || null);
+  }, [viewDate, initialFilter]);
+
+  const baseRecords = useMemo(() => {
+    const m = viewDate.getMonth(); const y = viewDate.getFullYear();
+    const isMatchingMonth = (dateStr: string) => { try { const d = new Date(dateStr); return d.getMonth() === m && d.getFullYear() === y; } catch { return false; } };
+    const exps = expenses.filter(e => isMatchingMonth(e.date)).map(e => ({ ...e, recordType: 'expense' as const }));
+    const incs = incomes.filter(i => (i as any).isMatchingMonth ? (i as any).isMatchingMonth : isMatchingMonth(i.date)).map(i => ({ ...i, recordType: 'income' as const }));
+    const all: any[] = [...exps, ...incs];
+    
+    let filtered = all;
+    if (categoryFilter) {
+      filtered = filtered.filter(rec => rec.category === categoryFilter);
+    }
+
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return filtered;
+    return filtered.filter(rec => (rec.merchant || '').toLowerCase().includes(q) || (rec.category || '').toLowerCase().includes(q) || (rec.mainCategory || '').toLowerCase().includes(q) || (rec.subCategory || '').toLowerCase().includes(q) || (rec.amount || 0).toString().includes(q));
+  }, [expenses, incomes, viewDate, searchQuery, categoryFilter]);
+
+  const filteredRecords = useMemo(() => {
+    let list: any[] = [...baseRecords];
+    if (isShowingAISuggestionsOnly) { list = list.filter(e => !!batchSuggestions[e.id]); } else {
+      if (filterType === 'expense') list = list.filter(r => r.recordType === 'expense' && !['Transfer', 'Bill Payment'].includes((r as any).subCategory || ''));
+      else if (filterType === 'income') list = list.filter(r => r.recordType === 'income');
+      else if (filterType === 'transfer') list = list.filter(r => (r as any).subCategory === 'Transfer');
+      else if (filterType === 'bill_payment') list = list.filter(r => (r as any).subCategory === 'Bill Payment');
+    }
+    list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return list;
+  }, [filterType, baseRecords, isShowingAISuggestionsOnly, batchSuggestions]);
+
+  const analyticsData = useMemo(() => {
+    const m = viewDate.getMonth(); const y = viewDate.getFullYear(); const prevDateObj = new Date(y, m - 1, 1); const pm = prevDateObj.getMonth(); const py = prevDateObj.getFullYear();
+    const currentMonthExpenses = expenses.filter(e => { const d = new Date(e.date); return d.getMonth() === m && d.getFullYear() === y && e.subCategory !== 'Transfer'; });
+    const prevMonthExpenses = expenses.filter(e => { const d = new Date(e.date); return d.getMonth() === pm && d.getFullYear() === py && e.subCategory !== 'Transfer'; });
+    
+    const weeklyMap: Record<string, { name: string; date: Date; Needs: number; Wants: number; Savings: number; Avoids: number }> = {};
+
+    currentMonthExpenses.forEach(e => {
+      const d = new Date(e.date);
+      const sunday = new Date(d);
+      sunday.setDate(d.getDate() - d.getDay());
+      sunday.setHours(0,0,0,0);
+      
+      const dateKey = sunday.toISOString().split('T')[0];
+      if (!weeklyMap[dateKey]) {
+        const day = sunday.getDate().toString().padStart(2, '0');
+        const month = (sunday.getMonth() + 1).toString().padStart(2, '0');
+        weeklyMap[dateKey] = { 
+          name: `${day}/${month}`, 
+          date: sunday,
+          Needs: 0, Wants: 0, Savings: 0, Avoids: 0 
+        };
+      }
+      
+      if (e.isAvoid) {
+        weeklyMap[dateKey].Avoids += e.amount;
+      }
+      if (['Needs', 'Wants', 'Savings'].includes(e.category)) {
+        weeklyMap[dateKey][e.category as 'Needs' | 'Wants' | 'Savings'] += e.amount;
+      }
+    });
+
+    const weeklyData = Object.values(weeklyMap).sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    const catMap: Record<string, number> = { Needs: 0, Wants: 0, Savings: 0, Avoids: 0 };
+    currentMonthExpenses.forEach(e => { 
+      if (e.isAvoid) catMap.Avoids += e.amount;
+      if (catMap[e.category] !== undefined && e.category !== 'Avoids') catMap[e.category] += e.amount; 
+    });
+    const pieData = Object.entries(catMap).map(([name, value]) => ({ name, value, color: CATEGORY_COLORS[name as Category] })).filter(d => d.value > 0);
+    const comparisonData = (['Needs', 'Wants', 'Savings', 'Avoids'] as const).map(cat => {
+      let current, previous;
+      if (cat === 'Avoids') {
+        current = currentMonthExpenses.filter(e => e.isAvoid).reduce((s, e) => s + e.amount, 0);
+        previous = prevMonthExpenses.filter(e => e.isAvoid).reduce((s, e) => s + e.amount, 0);
+      } else {
+        current = currentMonthExpenses.filter(e => e.category === cat).reduce((s, e) => s + e.amount, 0);
+        previous = prevMonthExpenses.filter(e => e.category === cat).reduce((s, e) => s + e.amount, 0);
+      }
+      return { name: cat, current: Math.round(current), previous: Math.round(previous), color: CATEGORY_COLORS[cat] };
+    });
+    const totalOutflow = currentMonthExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+    const efficiencyScore = totalOutflow > 0 ? (1 - ((catMap['Avoids'] || 0) / totalOutflow)) * 100 : 100;
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const today = new Date();
+    const daysElapsed = (today.getMonth() === m && today.getFullYear() === y) ? today.getDate() : daysInMonth;
+    return { pieData, comparisonData, weeklyData, totalOutflow, dailyBurn: totalOutflow / (daysElapsed || 1), efficiencyScore };
+  }, [expenses, viewDate]);
+
+  const renderPieLabel = (props: any) => {
+    const { cx, cy, midAngle, innerRadius, outerRadius, percent, name } = props;
+    const radius = innerRadius + (outerRadius - innerRadius) * 1.6;
+    const x = cx + radius * Math.cos(-midAngle * (Math.PI / 180));
+    const y = cy + radius * Math.sin(-midAngle * (Math.PI / 180));
+    return (<text x={x} y={y} fill="var(--brand-text)" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" className="text-[7px] font-black uppercase tracking-tighter">{`${name} (${(percent * 100).toFixed(0)}%)`}</text>);
+  };
+
+  const handleApplyRules = () => {
+    triggerHaptic();
+    if (!rules || rules.length === 0) { showToast("No rules defined in the Rule Engine.", "error"); return; }
+    const unconfirmedExpenses = filteredRecords.filter(r => r.recordType === 'expense' && !r.isConfirmed);
+    if (unconfirmedExpenses.length === 0) { showToast("No unconfirmed records to process.", "info"); return; }
+    let appliedCount = 0;
+    unconfirmedExpenses.forEach(exp => {
+      const merchant = (exp.merchant || '').toLowerCase();
+      const note = (exp.note || '').toLowerCase();
+      const match = rules.find(rule => { const kw = rule.keyword.toLowerCase(); return merchant.includes(kw) || note.includes(kw); });
+      if (match) { onUpdateExpense(exp.id, { category: match.category, mainCategory: match.mainCategory, subCategory: match.subCategory, ruleId: match.id, isConfirmed: true }); appliedCount++; }
+    });
+    if (appliedCount > 0) { showToast(`Successfully applied rules to ${appliedCount} records.`, "success"); } else { showToast("No matches found for existing rules.", "info"); }
+  };
+
+  const getBudgetContext = () => {
+    const m = viewDate.getMonth(); const y = viewDate.getFullYear();
+    const currentExps = expenses.filter(e => { const d = new Date(e.date); return d.getMonth() === m && d.getFullYear() === y; });
+    
+    return budgetItems.map(item => {
+      const spent = currentExps
+        .filter(e => e.category === item.bucket && e.mainCategory === item.category && (!item.subCategory || item.subCategory === 'General' || e.subCategory === item.subCategory))
+        .reduce((sum, e) => sum + e.amount, 0);
+      return `${item.bucket}/${item.category}${item.subCategory ? `/${item.subCategory}` : ''}: Limit ${item.amount}, Spent ${spent}, Remaining ${Math.max(0, item.amount - spent)}`;
+    }).join(' | ');
+  };
+
+  const handleBatchRefine = async () => {
+    triggerHaptic();
+    // Filter out expenses that are already categorized by a manual rule
+    const candidates = baseRecords.filter(r => {
+      if (r.recordType !== 'expense') return false;
+      const rule = rules.find(rule => rule.id === r.ruleId);
+      return !rule?.isManual;
+    });
+    
+    if (candidates.length === 0) { showToast("No eligible expense records to scan (Manual rules respected).", "info"); return; }
+    setIsRefining(true);
+    showToast("Initiating Neural Audit for current month...", "info");
+    try {
+      const payload = candidates.map(c => ({ id: c.id, amount: Math.round(c.amount), merchant: c.merchant || 'General', note: c.note || '', date: c.date }));
+      const budgetCtx = getBudgetContext();
+      const suggestions = await refineBatchTransactions(payload, budgetCtx);
+      if (suggestions && suggestions.length > 0) {
+        const newMap = { ...batchSuggestions };
+        suggestions.forEach(s => { newMap[s.id] = { ...s, potentialAvoid: s.isAvoidSuggestion, isDuplicateOf: s.isDuplicateOf }; });
+        setBatchSuggestions(newMap);
+        const avoidCount = suggestions.filter(s => s.isAvoidSuggestion).length;
+        const dupeCount = suggestions.filter(s => s.isDuplicateOf).length;
+        showToast(`Scan complete: ${avoidCount} Avoids, ${dupeCount} Duplicates found.`, 'success');
+        setIsShowingAISuggestionsOnly(true);
+      } else { showToast("Neural scan completed. No optimizations suggested.", "success"); }
+    } catch (e) { showToast("Tactical scan interrupted. Please try again.", "error"); } finally { setIsRefining(false); }
+  };
+
+  const handleCommitAllSuggestions = () => {
+    triggerHaptic(50);
+    const suggestionIds = Object.keys(batchSuggestions);
+    if (suggestionIds.length === 0) return;
+    let commitCount = 0;
+    suggestionIds.forEach(id => {
+      const suggestion = batchSuggestions[id];
+      if (suggestion.isDuplicateOf) { onDeleteExpense(id); } else { onUpdateExpense(id, { isConfirmed: true, category: suggestion.category, mainCategory: suggestion.mainCategory, subCategory: suggestion.subCategory, merchant: suggestion.merchant, note: suggestion.note, isAIUpgraded: true }); }
+      commitCount++;
+    });
+    setBatchSuggestions({});
+    setIsShowingAISuggestionsOnly(false);
+    showToast(`Committed ${commitCount} neural insights to registry and logic engine.`, 'success');
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      triggerHaptic();
+      setIsImporting(true);
+      showToast("Ingesting source signal...", "info");
+      try {
+        await onImport(file);
+      } catch (err) {
+        showToast("Signal ingestion failure.", "error");
+      } finally {
+        setIsImporting(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
+
+  const handleSelectAll = () => {
+    triggerHaptic(10);
+    if (selectedIds.length === filteredRecords.length && selectedIds.length > 0) setSelectedIds([]);
+    else setSelectedIds(filteredRecords.map(r => r.id));
+  };
+
+  const handleBulkDeleteAction = () => {
+    if (selectedIds.length === 0) return;
+    triggerHaptic(80); // Stronger haptic for destructive action
+    if (window.confirm(`Permanently purge ${selectedIds.length} selected records from the history? This action is irreversible.`)) {
+      // Find IDs by checking their source within the filtered list to correctly separate Expense vs Income
+      const selectedRecords = filteredRecords.filter(r => selectedIds.includes(r.id));
+      const expIds = selectedRecords.filter(r => r.recordType === 'expense').map(r => r.id);
+      const incIds = selectedRecords.filter(r => r.recordType === 'income').map(r => r.id);
+      
+      if (expIds.length > 0) onBulkDelete(expIds, 'expense');
+      if (incIds.length > 0) onBulkDelete(incIds, 'income');
+      
+      setSelectedIds([]);
+      setIsSelectionMode(false);
+      showToast(`Successfully purged ${selectedIds.length} records.`, 'success');
+    }
+  };
+
+  const handleBulkUpdateConfirm = (updates: { category: Category; mainCategory: string; subCategory: string }) => {
+    onBulkUpdateExpense(selectedIds, { ...updates, isConfirmed: true });
+    setSelectedIds([]);
+    setIsSelectionMode(false);
+    setIsBulkEditing(false);
+    showToast(`Bulk updated ${selectedIds.length} records.`, 'success');
+  };
+
+  const pendingBills = useMemo(() => bills.filter(b => !b.isPaid), [bills]);
+
+  return (
+    <div className={`pb-32 pt-0 animate-slide-up relative min-h-full flex flex-col ${isCompact ? 'gap-1' : 'gap-1.5'}`}>
+      <div className="bg-gradient-to-r from-brand-primary to-brand-secondary px-3 py-2 rounded-xl mb-1 mx-0.5 shadow-md h-[50px] flex items-center justify-between shrink-0 border border-white/5">
+        <div className="flex flex-col px-1">
+          <h1 className="text-[14px] font-black text-brand-headerText uppercase leading-none tracking-tight">
+            {viewMode === 'list' ? 'Ledger' : monthLabel}
+          </h1>
+          <p className="text-[7px] font-bold text-brand-headerText/50 uppercase tracking-[0.2em] mt-1">
+            {viewMode === 'list' ? 'Audit Registry' : 'Strategic Review'}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5">
+           {viewMode === 'compare' && (
+             <div className="flex items-center bg-white/10 rounded-xl p-0.5 mr-1 border border-white/5">
+                <button onClick={() => { triggerHaptic(); onMonthChange(-1); }} className="p-1.5 text-brand-headerText hover:bg-white/10 rounded-lg active:scale-90 transition-all"><ChevronLeft size={16} strokeWidth={3} /></button>
+                <button onClick={() => { triggerHaptic(); onMonthChange(1); }} className="p-1.5 text-brand-headerText hover:bg-white/10 rounded-lg active:scale-90 transition-all"><ChevronRight size={16} strokeWidth={3} /></button>
+             </div>
+           )}
+           <button onClick={() => { triggerHaptic(); fileInputRef.current?.click(); }} disabled={isImporting} className="p-2 bg-white/10 rounded-xl text-brand-headerText hover:bg-white/20 transition-all active:scale-95">
+                {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} strokeWidth={2.5} />}
+           </button>
+           <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".csv,.txt,text/csv,text/plain" />
+           <button onClick={handleApplyRules} title="Run Rule Engine" className="p-2 bg-white/10 rounded-xl text-brand-headerText hover:bg-white/20 transition-all active:scale-95"><Zap size={16} strokeWidth={2.5} /></button>
+           <button onClick={onDeduplicate} title="Clean Duplicates" className="p-2 bg-white/10 rounded-xl text-brand-headerText hover:bg-white/20 transition-all active:scale-95"><Flame size={16} strokeWidth={2.5} /></button>
+           <button onClick={handleBatchRefine} disabled={isRefining} className={`p-2 rounded-xl transition-all active:scale-95 ${isShowingAISuggestionsOnly ? 'bg-white/20 text-brand-headerText' : 'bg-white/10 text-brand-headerText'}`}>{isRefining ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} strokeWidth={2.5} />}</button>
+           <button onClick={() => { triggerHaptic(); setViewMode(viewMode === 'list' ? 'compare' : 'list'); }} className={`p-2 rounded-xl transition-all active:scale-95 ${viewMode === 'compare' ? 'bg-white/20 text-brand-headerText' : 'bg-white/10 text-brand-headerText'}`}>{viewMode === 'list' ? <BarChart3 size={16} /> : <LayoutList size={16} />}</button>
+        </div>
+      </div>
+      
+      {isShowingAISuggestionsOnly && (
+         <div className="mx-0.5 mb-1 px-3 py-2 bg-indigo-600 rounded-xl flex items-center justify-between animate-kick border border-indigo-400/30">
+            <div className="flex items-center gap-2"><ShieldCheck size={14} className="text-white" /><span className="text-[9px] font-black text-white uppercase tracking-widest">{Object.keys(batchSuggestions).length} Insights Pending</span></div>
+            <div className="flex items-center gap-2"><button onClick={() => setIsShowingAISuggestionsOnly(false)} className="px-3 py-1.5 rounded-lg bg-white/10 text-white text-[8px] font-black uppercase tracking-widest active:scale-90 transition-all">Dismiss</button><button onClick={handleCommitAllSuggestions} className="px-3 py-1.5 rounded-lg bg-white text-indigo-600 text-[8px] font-black uppercase tracking-widest active:scale-90 transition-all shadow-lg">Commit All</button></div>
+         </div>
+      )}
+      
+      {viewMode === 'list' && (
+        <div className={`flex items-center justify-between glass p-1 rounded-xl mb-1 mx-0.5 border-white/5 shadow-sm ${isCompact ? 'h-[36px]' : 'h-[40px]'} shrink-0 relative z-[200]`}>
+          <div className="flex items-center gap-1 h-full px-1">
+            {isSelectionMode ? (
+              <div className="flex items-center gap-1.5">
+                <button onClick={handleSelectAll} className="flex items-center gap-2 p-1.5 rounded-lg bg-white/10 text-brand-accentUi active:scale-90 border border-brand-accentUi/20">
+                  {selectedIds.length === filteredRecords.length && selectedIds.length > 0 ? <CheckSquare size={16} /> : <Square size={16} />}
+                  <span className="text-[8px] font-black uppercase">All</span>
+                </button>
+                {selectedIds.length > 0 && (
+                  <button 
+                    onClick={() => { triggerHaptic(); setIsBulkEditing(true); }} 
+                    className="flex items-center gap-2 p-1.5 rounded-lg bg-brand-accentUi text-brand-bg active:scale-90 shadow-md border border-brand-accentUi/20 animate-kick"
+                  >
+                    <Settings2 size={16} strokeWidth={3} />
+                    <span className="text-[8px] font-black uppercase">Edit ({selectedIds.length})</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <>
+                <button onClick={() => (triggerHaptic(), onMonthChange(-1))} className="p-1 text-slate-500 active:scale-90"><ChevronLeft size={16} strokeWidth={3} /></button>
+                <h2 className="text-[9px] font-black text-slate-400 uppercase tracking-widest min-w-[55px] text-center">{monthLabel}</h2>
+                <button onClick={() => (triggerHaptic(), onMonthChange(1))} className="p-1 text-slate-500 active:scale-90"><ChevronRight size={16} strokeWidth={3} /></button>
+                {categoryFilter && (
+                  <button 
+                    onClick={() => { triggerHaptic(); setCategoryFilter(null); }}
+                    className="ml-2 flex items-center gap-1 px-2 py-1 bg-rose-500/10 text-rose-500 rounded-lg border border-rose-500/20 animate-kick"
+                  >
+                    <span className="text-[7px] font-black uppercase">{categoryFilter}</span>
+                    <X size={10} strokeWidth={3} />
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-0.5 h-full pr-1">
+            {isSelectionMode ? (
+              <button onClick={() => { triggerHaptic(); setIsSelectionMode(false); setSelectedIds([]); }} className="p-1.5 rounded-lg text-rose-500 active:scale-90 transition-transform bg-rose-500/10 mr-1" title="Cancel Selection">
+                <X size={16} strokeWidth={3} />
+              </button>
+            ) : (
+              <button onClick={() => { triggerHaptic(); setIsSelectionMode(true); }} className="p-1.5 rounded-lg text-brand-accentUi active:scale-90 transition-transform bg-brand-accentUi/10 mr-1" title="Enter Selection Mode">
+                <CheckSquare size={16} strokeWidth={3} />
+              </button>
+            )}
+            {isShowingAISuggestionsOnly && (<button onClick={() => { triggerHaptic(); setIsShowingAISuggestionsOnly(false); }} className="p-1.5 rounded-lg text-rose-500 active:scale-90 transition-transform bg-rose-500/10 mr-1" title="Clear Neural Filter"><X size={16} strokeWidth={3} /></button>)}
+            <button onClick={() => { triggerHaptic(); onAddIncome(); }} className="p-1.5 rounded-lg text-emerald-500 active:scale-90 transition-transform" title="Add Income"><Banknote size={18} strokeWidth={3} /></button>
+            <button onClick={() => { triggerHaptic(); onAddRecord(); }} className="p-1.5 rounded-lg text-brand-accentUi active:scale-90 transition-transform" title="Add Expense"><Plus size={18} strokeWidth={3} /></button>
+            <button onClick={() => { triggerHaptic(); setSearchOpen(!isSearchOpen); }} className={`p-1.5 rounded-lg transition-all ${isSearchOpen ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}><Search size={16} /></button>
+          </div>
+        </div>
+      )}
+
+      <div className="px-0.5 flex-1 flex flex-col overflow-hidden">
+        {viewMode === 'list' ? (
+          <div className={`bg-brand-surface border border-brand-border ${isCompact ? 'rounded-[20px]' : 'rounded-[28px]'} overflow-hidden shadow-sm flex-1 min-h-[400px] flex flex-col`}>
+            {isSearchOpen && (<div className="px-3 py-3 animate-kick flex flex-col gap-2 bg-brand-accent/30 border-b border-brand-border"><input autoFocus type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search records..." className="w-full bg-brand-surface border border-brand-border px-4 py-2 rounded-xl text-xs font-bold text-brand-text outline-none focus:border-brand-primary/30" /></div>)}
+            <div className="divide-y divide-brand-border flex-1 overflow-y-auto no-scrollbar">
+              {filteredRecords.map((rec) => (
+                <SwipeableItem 
+                  key={rec.id} 
+                  item={rec} 
+                  recordType={rec.recordType} 
+                  currencySymbol={currencySymbol} 
+                  onDelete={rec.recordType === 'income' ? onDeleteIncome : onDeleteExpense} 
+                  onEdit={onEditRecord} 
+                  onUpdateExpense={onUpdateExpense} 
+                  aiSuggestion={batchSuggestions[rec.id]} 
+                  density={settings.density || 'Compact'} 
+                  pendingBills={pendingBills}
+                  isSelectionMode={isSelectionMode}
+                  isSelected={selectedIds.includes(rec.id)}
+                  onToggleSelect={handleToggleSelect}
+                />
+              ))}
+
+              {filteredRecords.length > 0 && (
+                <div className="px-6 py-4 bg-brand-accent/20 border-t border-brand-border flex items-center justify-between sticky bottom-0 z-20 backdrop-blur-sm">
+                  <div className="flex flex-col">
+                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em]">Registry Total</span>
+                    <span className="text-[7px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{filteredRecords.length} Records Summed</span>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[16px] font-black text-brand-text tracking-tighter">
+                      {currencySymbol}{Math.round(filteredRecords.reduce((sum, r) => {
+                        const amt = r.amount || 0;
+                        return r.recordType === 'income' ? sum + amt : sum - amt;
+                      }, 0)).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {filteredRecords.length === 0 && (
+                <div className="py-20 text-center flex flex-col items-center justify-center opacity-30">
+                  {isShowingAISuggestionsOnly ? (
+                    <><Check size={32} className="text-emerald-500 mb-4" /><p className="text-[10px] font-black uppercase tracking-widest">Protocol Optimization Complete</p><button onClick={() => setIsShowingAISuggestionsOnly(false)} className="mt-4 text-[8px] font-black text-brand-primary uppercase tracking-widest underline">Return to Full Feed</button></>
+                  ) : (
+                    <><FilterX size={32} strokeWidth={1.5} /><p className="text-[10px] font-black uppercase tracking-widest mt-4">Registry Null</p></>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto no-scrollbar pb-10">
+            <div className={`flex flex-col ${isCompact ? 'gap-1.5' : 'gap-3'} animate-slide-up`}>
+              <div className={`grid grid-cols-2 ${isCompact ? 'gap-1.5' : 'gap-3'}`}><div className={`bg-brand-surface ${isCompact ? 'p-3 rounded-2xl' : 'p-4 rounded-[28px]'} border border-brand-border shadow-sm`}><div className="flex items-center gap-2 mb-2"><TrendingDown size={12} className="text-orange-500" /><span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Daily Burn</span></div><h3 className={`${isCompact ? 'text-base' : 'text-lg'} font-black text-brand-text tracking-tighter leading-none`}>{currencySymbol}{Math.round(analyticsData.dailyBurn).toLocaleString()}</h3></div><div className={`bg-brand-surface ${isCompact ? 'p-3 rounded-2xl' : 'p-4 rounded-[28px]'} border border-brand-border shadow-sm`}><div className="flex items-center gap-2 mb-2"><Zap size={12} className="text-indigo-400" /><span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Efficiency</span></div><h3 className={`${isCompact ? 'text-base' : 'text-lg'} font-black text-brand-text tracking-tighter leading-none`}>{Math.round(analyticsData.efficiencyScore)}%</h3></div></div>
+              
+              <section className={`bg-brand-surface ${isCompact ? 'p-3 rounded-2xl' : 'p-5 rounded-[32px]'} border border-brand-border shadow-sm`}>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <CalendarDays size={14} className="text-brand-primary" />
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Weekly Expenditure Pulse</h3>
+                  </div>
+                </div>
+                <div className={`${isCompact ? 'h-44' : 'h-52'} w-full`}>
+                   <ResponsiveContainer width="100%" height="100%">
+                     <BarChart data={analyticsData.weeklyData} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 8, fontWeight: 900, fill: '#64748b' }} dy={5} />
+                        <Tooltip 
+                          cursor={{fill: 'var(--brand-accent)'}}
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length) {
+                              return (
+                                <div className="bg-brand-surface p-3 rounded-2xl border border-brand-border shadow-xl min-w-[120px]">
+                                  <p className="text-[9px] font-black text-brand-text uppercase mb-2">Week of {label}</p>
+                                  <div className="space-y-1.5">
+                                    {payload.map((p: any) => (
+                                      <div key={p.name} className="flex justify-between items-center gap-4">
+                                        <div className="flex items-center gap-1.5">
+                                          <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: p.color }} />
+                                          <span className="text-[7px] font-bold text-slate-500 uppercase">{p.name}</span>
+                                        </div>
+                                        <span className="text-[8px] font-black text-brand-text">{currencySymbol}{Math.round(p.value).toLocaleString()}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Bar dataKey="Needs" stackId="a" fill={CATEGORY_COLORS.Needs} radius={0} />
+                        <Bar dataKey="Wants" stackId="a" fill={CATEGORY_COLORS.Wants} radius={0} />
+                        <Bar dataKey="Savings" stackId="a" fill={CATEGORY_COLORS.Savings} radius={0} />
+                        <Bar dataKey="Avoids" stackId="a" fill={CATEGORY_COLORS.Avoids} radius={[4, 4, 0, 0]} />
+                     </BarChart>
+                   </ResponsiveContainer>
+                </div>
+                <div className="flex justify-center gap-3 mt-4 flex-wrap">
+                   {(['Needs', 'Wants', 'Savings', 'Avoids'] as const).map(cat => (
+                     <div key={cat} className="flex items-center gap-1">
+                        <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[cat] }} />
+                        <span className="text-[6px] font-black text-slate-500 uppercase tracking-widest">{cat}</span>
+                     </div>
+                   ))}
+                </div>
+              </section>
+
+              <section className={`bg-brand-surface ${isCompact ? 'p-3 rounded-2xl' : 'p-5 rounded-[32px]'} border border-brand-border shadow-sm`}><div className="flex items-center justify-between mb-4"><div className="flex items-center gap-2"><PieChartIcon size={14} className="text-slate-400" /><h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Allocation</h3></div></div><div className={`${isCompact ? 'h-48' : 'h-56'} w-full`}><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={analyticsData.pieData} cx="50%" cy="50%" innerRadius={isCompact ? 22 : 30} outerRadius={isCompact ? 38 : 50} paddingAngle={4} dataKey="value" labelLine={true} label={renderPieLabel}>{analyticsData.pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />)}</Pie></PieChart></ResponsiveContainer></div></section>
+              <section className={`bg-brand-surface ${isCompact ? 'p-3 rounded-2xl' : 'p-5 rounded-[32px]'} border border-brand-border shadow-sm`}><div className="flex items-center justify-between mb-5"><div className="flex items-center gap-2"><History size={14} className="text-slate-400" /><h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Monthly Variance</h3></div><div className="flex items-center gap-3"><div className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-slate-500 opacity-20" /><span className="text-[7px] font-black text-slate-500 uppercase">Last</span></div><div className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-brand-accentUi" /><span className="text-[7px] font-black text-slate-500 uppercase">This</span></div></div></div><div className={`${isCompact ? 'h-40' : 'h-52'} w-full`}><ResponsiveContainer width="100%" height="100%"><BarChart data={analyticsData.comparisonData} margin={{ top: 10, right: 0, left: -20, bottom: 20 }} barGap={2}><XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 900, fill: '#64748b' }} dy={10} /><Tooltip cursor={{fill: 'transparent'}} content={({ active, payload }) => { if (active && payload && payload.length) { const data = payload[0].payload; return (<div className="bg-brand-surface p-3 rounded-2xl border border-brand-border shadow-xl"><p className="text-[9px] font-black text-brand-text uppercase mb-2">{data.name}</p><div className="space-y-1"><div className="flex justify-between gap-4"><span className="text-[7px] font-bold text-slate-500 uppercase tracking-widest">Last Month</span><span className="text-[8px] font-black text-brand-text">{currencySymbol}{data.previous.toLocaleString()}</span></div><div className="flex justify-between gap-4"><span className="text-[7px] font-bold text-slate-500 uppercase tracking-widest">This Month</span><span className="text-[8px] font-black text-brand-text">{currencySymbol}{data.current.toLocaleString()}</span></div></div></div>); } return null; }} /><Bar dataKey="previous" radius={[4, 4, 0, 0]} fill="var(--brand-text)" opacity={0.1} /><Bar dataKey="current" radius={[4, 4, 0, 0]}>{analyticsData.comparisonData.map((entry, index) => (<Cell key={`cell-cur-${index}`} fill={entry.color} />))}</Bar></BarChart></ResponsiveContainer></div></section>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Bulk Edit Modal */}
+      {isBulkEditing && (
+        <BulkEditModal 
+          settings={settings} 
+          selectedCount={selectedIds.length} 
+          onCancel={() => setIsBulkEditing(false)} 
+          onConfirm={handleBulkUpdateConfirm} 
+        />
+      )}
+    </div>
+  );
+};
+
+export default Ledger;

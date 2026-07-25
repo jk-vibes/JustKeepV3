@@ -1,0 +1,767 @@
+import React, { useMemo, useState } from 'react';
+import { WealthItem, UserSettings, Expense, Income, WealthCategory, Bill, Category } from '../types';
+import { getCurrencySymbol, CATEGORY_COLORS as APP_CAT_COLORS } from '../constants';
+import { 
+  Landmark, CreditCard, ShieldCheck, 
+  ArrowRightLeft,
+  PiggyBank, Briefcase, 
+  TrendingUp, Coins, Home, Receipt, 
+  Activity, PieChart as PieChartIcon,
+  BarChart3, ChevronDown, ChevronUp,
+  Target, Info, Zap, AlertCircle,
+  LayoutGrid, List, BarChart as BarChartIcon,
+  ArrowUpRight, ArrowDownRight, Layers,
+  ReceiptText, Sparkles, Plus, Tag,
+  Clock, RefreshCcw, CalendarClock,
+  Hash
+} from 'lucide-react';
+import { 
+  AreaChart, Area, 
+  BarChart, Bar, 
+  XAxis, YAxis, 
+  ResponsiveContainer, Tooltip, 
+  Cell, LabelList, CartesianGrid 
+} from 'recharts';
+import { triggerHaptic } from '../utils/haptics';
+import AssetTree from './AssetTree';
+import LineDrawingTree from './LineDrawingTree';
+
+interface AccountsProps {
+  wealthItems: WealthItem[];
+  expenses: Expense[];
+  incomes: Income[];
+  bills: Bill[];
+  settings: UserSettings;
+  onUpdateWealth: (id: string, updates: Partial<WealthItem>) => void;
+  onDeleteWealth: (id: string) => void;
+  onAddWealth: (item: Omit<WealthItem, 'id'>) => void;
+  onEditAccount: (account: WealthItem) => void;
+  onAddAccountClick: () => void;
+  onOpenCategoryManager: () => void;
+  onAddBillClick?: (extra?: any) => void;
+  onAddIncomeClick?: () => void;
+  onAddTransferClick?: () => void;
+  onDeleteExpense: (id: string) => void;
+  onDeleteIncome: (id: string) => void;
+  onAddStatementTransactions: (accId: string, txs: Partial<Expense>[]) => void;
+  externalShowAdd?: boolean;
+  onAddClose?: () => void;
+}
+
+const WEALTH_COLORS: Record<string, string> = {
+  'Savings': '#10b981',
+  'Gold': '#facc15',
+  'Investment': '#6366f1',
+  'Cash': '#34d399',
+  'Credit Card': '#f43f5e',
+  'Home Loan': '#e11d48',
+  'Personal Loan': '#fb7185',
+  'Pension': '#8b5cf6',
+  'Other': '#94a3b8'
+};
+
+const getCategoryIcon = (category: WealthCategory) => {
+  switch (category) {
+    case 'Savings': return <PiggyBank size={10} />;
+    case 'Pension': return <Briefcase size={10} />;
+    case 'Gold': return <Coins size={10} />;
+    case 'Investment': return <TrendingUp size={10} />;
+    case 'Credit Card': return <CreditCard size={10} />;
+    case 'Home Loan': return <Home size={10} />;
+    case 'Personal Loan': return <Receipt size={10} />;
+    case 'Gold Loan': return <Coins size={10} />;
+    case 'Overdraft': return <Activity size={10} />;
+    default: return <Landmark size={10} />;
+  }
+};
+
+const UltraCompactRow: React.FC<{
+  item: WealthItem;
+  unpaidBills: number;
+  relevantBillDate?: string;
+  currencySymbol: string;
+  onClick: () => void;
+}> = ({ item, unpaidBills, relevantBillDate, currencySymbol, onClick }) => {
+  const isCC = item.category === 'Credit Card';
+  const displayValue = item.value + unpaidBills;
+  const availableLimit = isCC ? Math.max(0, (item.limit || 0) - displayValue) : 0;
+  
+  const refreshDate = useMemo(() => {
+    try {
+      const d = new Date(item.date);
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }).toUpperCase();
+    } catch {
+      return 'N/A';
+    }
+  }, [item.date]);
+
+  const billDueDate = useMemo(() => {
+    if (!relevantBillDate) return null;
+    try {
+      const d = new Date(relevantBillDate);
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }).toUpperCase();
+    } catch {
+      return null;
+    }
+  }, [relevantBillDate]);
+
+  const labelPrefix = useMemo(() => {
+    if (isCC && billDueDate) return 'DUE';
+    if (item.type === 'Liability') return 'LAST UPDATED';
+    return 'REFRESHED';
+  }, [isCC, billDueDate, item.type]);
+
+  const displayDate = (isCC && billDueDate) ? billDueDate : refreshDate;
+
+  return (
+    <div 
+      onClick={() => { triggerHaptic(); onClick(); }}
+      className="flex items-center justify-between py-1.5 px-2.5 hover:bg-brand-accent/30 transition-colors border-b border-brand-border cursor-pointer group bg-brand-surface"
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <div className={`p-1.5 rounded-lg ${item.type === 'Liability' ? 'bg-rose-500/10 text-rose-500' : 'bg-emerald-500/10 text-emerald-500'} transition-colors`}>
+          {getCategoryIcon(item.category)}
+        </div>
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <span className="text-[10px] font-medium text-slate-500 truncate capitalize tracking-tight leading-none">
+              {item.name}
+            </span>
+            {!!item.accountNumber && (
+              <div className="flex items-center gap-0.5 opacity-40">
+                <Hash size={7} />
+                <span className="text-[7px] font-bold text-slate-500">{String(item.accountNumber).slice(-4).padStart(String(item.accountNumber).length, '•')}</span>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+             <span className="text-[7px] font-bold text-slate-500 uppercase tracking-widest leading-none">
+               {item.alias || item.category}
+             </span>
+             {isCC && item.limit && (
+               <span className="text-[6px] font-black text-indigo-400 uppercase tracking-widest bg-indigo-500/10 px-1 rounded">
+                 Avail: {currencySymbol}{Math.round(availableLimit).toLocaleString()}
+               </span>
+             )}
+             {item.type === 'Liability' && (item.emiAmount || 0) > 0 && (
+               <span className="text-[6px] font-black text-rose-400 uppercase tracking-widest bg-rose-500/10 px-1 rounded">
+                 EMI: {currencySymbol}{Math.round(item.emiAmount!).toLocaleString()}
+               </span>
+             )}
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-col items-end shrink-0">
+        <span className="text-[10px] font-medium tracking-widest leading-none text-slate-950 dark:text-slate-100">
+          {item.type === 'Liability' && displayValue > 0 ? '-' : ''}{currencySymbol}{Math.abs(Math.round(displayValue)).toLocaleString()}
+        </span>
+        <div className="flex items-center gap-1 mt-0.5 text-slate-500">
+          {labelPrefix === 'DUE' ? <CalendarClock size={6} className="text-indigo-400" /> : <RefreshCcw size={6} className="opacity-40" />}
+          <span className={`text-[6px] font-black uppercase tracking-widest leading-none ${labelPrefix === 'DUE' ? 'text-indigo-400' : ''}`}>
+            {labelPrefix} • {displayDate}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const GridAccountItem: React.FC<{
+  item: WealthItem;
+  unpaidBills: number;
+  currencySymbol: string;
+  onClick: () => void;
+  isStandalone?: boolean;
+}> = ({ item, unpaidBills, currencySymbol, onClick, isStandalone }) => {
+  const displayValue = item.value + unpaidBills;
+  const valueColor = item.type === 'Liability' ? 'text-rose-500' : 'text-emerald-500';
+  
+  return (
+    <div 
+      onClick={() => { triggerHaptic(); onClick(); }}
+      className={`flex flex-col px-1.5 hover:bg-brand-accent/20 transition-all cursor-pointer bg-brand-surface group ${
+        isStandalone ? 'py-1.5 border-b border-brand-border' : 'py-1'
+      }`}
+    >
+      <div className="flex justify-between items-center gap-2">
+        <div className="flex flex-col min-w-0">
+          <span className="text-[10px] font-medium capitalize truncate tracking-tight leading-none group-hover:text-brand-accentUi transition-colors text-slate-500">
+            {item.name}
+          </span>
+          {item.type === 'Liability' && (item.emiAmount || 0) > 0 && (
+            <span className="text-[7px] font-bold text-rose-500/70 uppercase tracking-widest mt-0.5">
+              EMI: {currencySymbol}{Math.round(item.emiAmount!).toLocaleString()}
+            </span>
+          )}
+        </div>
+        <span className={`text-[10px] font-medium tracking-widest leading-none shrink-0 ${valueColor}`}>
+          {item.type === 'Liability' && displayValue > 0 ? '-' : ''}{currencySymbol}{Math.abs(Math.round(displayValue)).toLocaleString()}
+        </span>
+      </div>
+    </div>
+  );
+};
+
+const CategoryCard: React.FC<{
+  category: string;
+  items: WealthItem[];
+  type: 'asset' | 'liability';
+  currencySymbol: string;
+  onEdit: (item: WealthItem) => void;
+  accountBills: Record<string, { amount: number }>;
+}> = ({ category, items, type, currencySymbol, onEdit, accountBills }) => {
+  const total = items.reduce((sum, item) => sum + item.value + (accountBills[item.id]?.amount || 0), 0);
+  const color = type === 'asset' ? 'text-emerald-500' : 'text-rose-500';
+  const bgColor = type === 'asset' ? 'bg-emerald-500/5' : 'bg-rose-500/5';
+  const borderColor = type === 'asset' ? 'border-emerald-500/10' : 'border-rose-500/10';
+
+  return (
+    <div className={`p-2.5 rounded-xl border ${borderColor} ${bgColor} flex flex-col gap-1.5 shadow-sm`}>
+      <div className="flex justify-between items-center border-b border-brand-border pb-1 mb-0.5">
+        <span className="text-[8px] font-black uppercase tracking-widest text-black dark:text-white truncate max-w-[60%]">{category}</span>
+        <span className={`text-[9px] font-black ${color}`}>{currencySymbol}{Math.round(total).toLocaleString()}</span>
+      </div>
+      <div className="space-y-1">
+        {items.map(item => (
+          <div 
+            key={item.id} 
+            onClick={() => { triggerHaptic(); onEdit(item); }}
+            className="flex justify-between items-center group cursor-pointer"
+          >
+            <div className="flex flex-col min-w-0">
+              <span className="text-[8px] font-medium text-slate-500 truncate group-hover:text-brand-primary transition-colors">{item.name}</span>
+              {(item.emiAmount || 0) > 0 && (
+                <span className="text-[6px] font-bold text-rose-500/60 uppercase tracking-tighter">EMI: {currencySymbol}{Math.round(item.emiAmount!).toLocaleString()}</span>
+              )}
+            </div>
+            <span className="text-[8px] font-bold text-slate-500 shrink-0 ml-2">{currencySymbol}{Math.round(item.value + (accountBills[item.id]?.amount || 0)).toLocaleString()}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const CustomLabel = (props: any) => {
+  const { x, y, width, value, currencySymbol, position = "top" } = props;
+  if (!value) return null;
+  return (
+    <text 
+      x={position === "right" ? x + width + 5 : x + width / 2} 
+      y={position === "right" ? y + 10 : y - 10} 
+      fill="currentColor" 
+      textAnchor={position === "right" ? "start" : "middle"}
+      className="text-[9px] font-black fill-brand-text"
+    >
+      {currencySymbol}{Math.round(value).toLocaleString()}
+    </text>
+  );
+};
+
+const Accounts: React.FC<AccountsProps> = ({
+  wealthItems, settings, bills, onEditAccount, onAddTransferClick, onAddAccountClick, onOpenCategoryManager
+}) => {
+  const [activeView, setActiveView] = useState<'dashboard' | 'registry'>('registry');
+  const [registryLayout, setRegistryLayout] = useState<'list' | 'grid' | 'bento'>('grid');
+  const [assetCompositionView, setAssetCompositionView] = useState<'chart' | 'orchard' | 'sketch'>('chart');
+  const [accountFilter, setAccountFilter] = useState<'all' | 'assets' | 'liabilities'>('all');
+  const currencySymbol = getCurrencySymbol(settings.currency);
+  
+  const stats = useMemo(() => {
+    const assets = wealthItems.filter(i => i.type === 'Investment').reduce((sum, i) => sum + i.value, 0);
+    const accountLiabilities = wealthItems.filter(i => i.type === 'Liability').reduce((sum, i) => sum + i.value, 0);
+    const liquid = wealthItems.filter(i => i.type === 'Investment' && ['Savings', 'Cash'].includes(i.category)).reduce((sum, i) => sum + i.value, 0);
+    const totalUnpaidBills = bills.filter(b => !b.isPaid).reduce((sum, b) => sum + b.amount, 0);
+    
+    const totalLiabilities = Math.round(accountLiabilities + totalUnpaidBills);
+    const netWorth = Math.round(assets - totalLiabilities);
+    
+    const totalEmi = wealthItems
+      .filter(i => i.type === 'Liability' && i.emiAmount)
+      .reduce((sum, i) => sum + (i.emiAmount || 0), 0);
+
+    const solvencyRatio = assets > 0 ? ((assets - totalLiabilities) / assets) * 100 : 0;
+    const liquidityRatio = assets > 0 ? (liquid / assets) * 100 : 0;
+
+    const assetDist = wealthItems.filter(i => i.type === 'Investment').reduce((acc, item) => {
+      acc[item.category] = (acc[item.category] || 0) + item.value;
+      return acc;
+    }, {} as Record<string, number>);
+    const liabilityDist = wealthItems.filter(i => i.type === 'Liability').reduce((acc, item) => {
+      acc[item.category] = (acc[item.category] || 0) + item.value;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return { 
+      totalAssets: Math.round(assets),
+      totalLiabilities,
+      netWorth,
+      liquid: Math.round(liquid),
+      solvencyRatio,
+      liquidityRatio,
+      totalEmi: Math.round(totalEmi),
+      assetChartData: Object.entries(assetDist).map(([name, value]) => ({ name, value: Math.round(value as number) })).sort((a, b) => b.value - a.value),
+      liabilityChartData: Object.entries(liabilityDist).map(([name, value]) => ({ name, value: Math.round(value as number) })).sort((a, b) => b.value - a.value),
+      asOnDate: wealthItems.filter(i => i.type === 'Investment').length > 0 
+        ? new Date(Math.max(...wealthItems.filter(i => i.type === 'Investment').map(i => new Date(i.date).getTime()))).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+        : null
+    };
+  }, [wealthItems, bills]);
+
+  const assetCompositionHeight = useMemo(() => {
+    const count = wealthItems.filter(i => i.type === 'Investment').length;
+    return Math.max(220, count * 28);
+  }, [wealthItems]);
+
+  const accountBillsInfo = useMemo(() => {
+    const map: Record<string, { amount: number, earliestDueDate?: string }> = {};
+    bills.filter(b => !b.isPaid).forEach(b => {
+      if (b.accountId) {
+        if (!map[b.accountId]) {
+          map[b.accountId] = { amount: 0, earliestDueDate: b.dueDate };
+        }
+        map[b.accountId].amount += b.amount;
+        if (b.dueDate && (!map[b.accountId].earliestDueDate || b.dueDate < (map[b.accountId].earliestDueDate || ''))) {
+          map[b.accountId].earliestDueDate = b.dueDate;
+        }
+      }
+    });
+    return map;
+  }, [bills]);
+
+  const assetGroups = useMemo(() => {
+    const groups: Record<string, WealthItem[]> = {};
+    wealthItems.filter(i => i.type === 'Investment').forEach(item => {
+      const g = item.group || item.category || 'Other';
+      if (!groups[g]) groups[g] = [];
+      groups[g].push(item);
+    });
+    return groups;
+  }, [wealthItems]);
+
+  const liabilityGroups = useMemo(() => {
+    const groups: Record<string, WealthItem[]> = {};
+    wealthItems.filter(i => i.type === 'Liability').forEach(item => {
+      const g = item.group || item.category || 'Other';
+      if (!groups[g]) groups[g] = [];
+      groups[g].push(item);
+    });
+    return groups;
+  }, [wealthItems]);
+
+  const renderSideBySideGroups = (groups: Record<string, WealthItem[]>, type: 'asset' | 'liability') => {
+    return Object.keys(groups).sort().map(group => {
+      const items = groups[group];
+      const isSingle = items.length === 1;
+      const valueColor = type === 'asset' ? 'text-emerald-500' : 'text-rose-500';
+      
+      if (isSingle) {
+        return (
+          <div key={group} className="flex flex-col mt-2 first:mt-0">
+            <GridAccountItem 
+              item={items[0]} 
+              unpaidBills={accountBillsInfo[items[0].id]?.amount || 0} 
+              currencySymbol={currencySymbol} 
+              onClick={() => onEditAccount(items[0])} 
+              isStandalone={true}
+            />
+          </div>
+        );
+      }
+
+      const groupSubtotal = items.reduce((sum, item) => sum + item.value + (accountBillsInfo[item.id]?.amount || 0), 0);
+      
+      return (
+        <div key={group} className="flex flex-col mt-2 first:mt-0">
+          <div className="flex justify-between items-center px-1 mb-0.5 border-b border-brand-border pb-0.5">
+            <span className="text-[9px] font-bold uppercase tracking-widest leading-none text-black dark:text-white">{group}</span>
+            <span className={`text-[9px] font-bold tracking-widest leading-none ${valueColor}`}>{currencySymbol}{Math.round(groupSubtotal).toLocaleString()}</span>
+          </div>
+          <div className="space-y-0.5">
+            {items.map(item => (
+              <GridAccountItem 
+                key={item.id} 
+                item={item} 
+                unpaidBills={accountBillsInfo[item.id]?.amount || 0} 
+                currencySymbol={currencySymbol} 
+                onClick={() => onEditAccount(item)} 
+              />
+            ))}
+          </div>
+        </div>
+      );
+    });
+  };
+
+  return (
+    <div className="h-full flex flex-col pb-32 animate-slide-up overflow-hidden">
+      <div className="bg-gradient-to-r from-brand-primary to-brand-secondary px-3 py-1.5 rounded-xl mb-1 mx-0.5 shadow-md h-[44px] flex items-center justify-between shrink-0 border border-white/5">
+        <div className="flex justify-between items-center w-full px-1">
+          <div>
+            <h1 className="text-[13px] font-black text-brand-headerText uppercase leading-none tracking-tight">
+              {activeView === 'dashboard' ? 'Portfolio' : 'Accounts'}
+            </h1>
+            <p className="text-[7px] font-bold text-brand-headerText/50 uppercase tracking-[0.2em] mt-0.5">
+              {activeView === 'dashboard' ? 'Intelligence' : 'Registry'}
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button 
+              onClick={() => { triggerHaptic(); onOpenCategoryManager(); }} 
+              className="p-1.5 bg-white/10 rounded-lg text-brand-headerText active:scale-95 transition-all"
+            >
+              <Tag size={14} />
+            </button>
+            <button 
+              onClick={() => { triggerHaptic(); setActiveView(activeView === 'dashboard' ? 'registry' : 'dashboard'); }} 
+              className={`p-1.5 rounded-lg transition-all active:scale-95 ${activeView === 'registry' ? 'bg-white/20 text-brand-headerText' : 'bg-white/10 text-brand-headerText'}`}
+            >
+              {activeView === 'dashboard' ? <PieChartIcon size={14} /> : <BarChart3 size={14} />}
+            </button>
+            {activeView === 'registry' && (
+              <button 
+                onClick={() => { 
+                  triggerHaptic(); 
+                  setRegistryLayout(prev => prev === 'list' ? 'grid' : prev === 'grid' ? 'bento' : 'list'); 
+                }} 
+                className="p-1.5 bg-white/10 rounded-lg text-brand-headerText active:scale-95 transition-all"
+              >
+                {registryLayout === 'list' ? <LayoutGrid size={14} /> : registryLayout === 'grid' ? <Layers size={14} /> : <List size={14} />}
+              </button>
+            )}
+            <button 
+              onClick={() => { triggerHaptic(); onAddAccountClick(); }} 
+              className="p-1.5 bg-white/10 rounded-lg text-brand-headerText active:scale-95 transition-all"
+            >
+              <Plus size={14} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-brand-surface px-3 py-2 border-b border-brand-border shrink-0 flex items-center justify-between shadow-sm z-10">
+        <div className="flex flex-col">
+          <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Total Net Equity</p>
+          <h2 className="text-xl font-black text-brand-text tracking-tighter leading-none">
+            {stats.netWorth < 0 ? '-' : ''}{currencySymbol}{Math.abs(Math.round(stats.netWorth)).toLocaleString()}
+          </h2>
+        </div>
+        <div className="flex gap-2.5 items-center">
+           <div className="flex flex-col items-end">
+              <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest leading-none mb-0.5">Total EMI</span>
+              <span className="text-[11px] font-black text-rose-500">{currencySymbol}{stats.totalEmi.toLocaleString()}</span>
+           </div>
+           <div className="flex flex-col items-end">
+              <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest leading-none mb-0.5">Equity score</span>
+              <span className={`text-[11px] font-black ${stats.solvencyRatio > 50 ? 'text-emerald-500' : 'text-rose-500'}`}>{Math.round(stats.solvencyRatio)}%</span>
+           </div>
+           <div className="p-2 bg-indigo-500/10 rounded-xl text-indigo-400 shadow-inner">
+              <ShieldCheck size={16} />
+           </div>
+        </div>
+      </div>
+
+      {/* Capital Assets Toggle Bar */}
+      <div className="bg-brand-surface/90 backdrop-blur-sm px-3 py-1.5 border-b border-brand-border shrink-0 flex items-center justify-between z-10">
+        <div className="flex items-center gap-1 bg-brand-accent p-0.5 rounded-lg border border-brand-border">
+          <button
+            onClick={() => { triggerHaptic(); setAccountFilter('all'); }}
+            className={`px-2.5 py-1 rounded-md text-[8px] font-black uppercase tracking-wider transition-all ${
+              accountFilter === 'all' 
+                ? 'bg-brand-surface text-brand-text shadow-sm' 
+                : 'text-slate-500 opacity-60 hover:opacity-100'
+            }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => { triggerHaptic(); setAccountFilter('assets'); }}
+            className={`px-2.5 py-1 rounded-md text-[8px] font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
+              accountFilter === 'assets' 
+                ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30 shadow-sm' 
+                : 'text-slate-500 opacity-60 hover:opacity-100'
+            }`}
+          >
+            <ArrowUpRight size={10} className="text-emerald-500" />
+            Capital Assets
+          </button>
+          <button
+            onClick={() => { triggerHaptic(); setAccountFilter('liabilities'); }}
+            className={`px-2.5 py-1 rounded-md text-[8px] font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
+              accountFilter === 'liabilities' 
+                ? 'bg-rose-500/20 text-rose-500 border border-rose-500/30 shadow-sm' 
+                : 'text-slate-500 opacity-60 hover:opacity-100'
+            }`}
+          >
+            <ArrowDownRight size={10} className="text-rose-500" />
+            Debts
+          </button>
+        </div>
+        <span className="text-[7px] font-bold text-slate-400 uppercase tracking-widest">
+          {accountFilter === 'assets' ? 'Filter: Capital Assets' : accountFilter === 'liabilities' ? 'Filter: Debts' : 'Filter: All Accounts'}
+        </span>
+      </div>
+
+      <div className="flex-1 overflow-y-auto no-scrollbar">
+        {activeView === 'dashboard' ? (
+          <div className="px-1 py-2 space-y-2 animate-slide-up pb-10">
+             <div className="grid grid-cols-2 gap-2 items-start">
+                <section className="bg-brand-surface p-2.5 rounded-xl border border-brand-border shadow-sm">
+                   <div className="flex items-center gap-1.5 mb-1 opacity-60">
+                      <Target size={11} className="text-indigo-400" />
+                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Liquidity index</span>
+                   </div>
+                   <h3 className="text-lg font-black text-indigo-400 tracking-tighter">{Math.round(stats.liquidityRatio)}%</h3>
+                   <div className="w-full h-1 bg-brand-accent/40 rounded-full mt-1.5 overflow-hidden">
+                      <div className="h-full bg-indigo-500 transition-all duration-1000" style={{ width: `${stats.liquidityRatio}%` }} />
+                   </div>
+                </section>
+                <section className="bg-brand-surface p-2.5 rounded-xl border border-brand-border shadow-sm">
+                   <div className="flex items-center gap-1.5 mb-1 opacity-60">
+                      <AlertCircle size={11} className="text-rose-500" />
+                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Debt burden</span>
+                   </div>
+                   <h3 className="text-lg font-black text-rose-500 tracking-tighter">{currencySymbol}{Math.round(stats.totalLiabilities).toLocaleString()}</h3>
+                   <div className="w-full h-1 bg-brand-accent/40 rounded-full mt-1.5 overflow-hidden">
+                      <div className="h-full bg-rose-500 transition-all duration-1000" style={{ width: `${Math.min(100, (stats.totalLiabilities / (stats.totalAssets || 1)) * 100)}%` }} />
+                   </div>
+                </section>
+             </div>
+
+             <section className="bg-brand-surface rounded-xl py-3 px-3 border border-brand-border shadow-sm flex flex-col gap-2 overflow-hidden">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-500">
+                      <ArrowUpRight size={14} />
+                    </div>
+                    <div>
+                      <h3 className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] leading-none">Asset Composition</h3>
+                      <p className="text-lg font-black text-brand-text mt-1 tracking-tighter">{currencySymbol}{stats.totalAssets.toLocaleString()}</p>
+                      {stats.asOnDate && (
+                        <p className="text-[7px] font-medium text-slate-400 italic mt-0.5 leading-none">As on {stats.asOnDate}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button 
+                      onClick={() => { triggerHaptic(); setAssetCompositionView('chart'); }}
+                      className={`p-1 rounded-lg border transition-all ${assetCompositionView === 'chart' ? 'bg-brand-primary text-brand-headerText border-brand-primary' : 'bg-brand-accent text-slate-500 border-brand-border'}`}
+                    >
+                      <BarChart3 size={11} />
+                    </button>
+                    <button 
+                      onClick={() => { triggerHaptic(); setAssetCompositionView('orchard'); }}
+                      className={`p-1 rounded-lg border transition-all ${assetCompositionView === 'orchard' ? 'bg-brand-primary text-brand-headerText border-brand-primary' : 'bg-brand-accent text-slate-500 border-brand-border'}`}
+                    >
+                      <Sparkles size={11} />
+                    </button>
+                    <button 
+                      onClick={() => { triggerHaptic(); setAssetCompositionView('sketch'); }}
+                      className={`p-1 rounded-lg border transition-all ${assetCompositionView === 'sketch' ? 'bg-brand-primary text-brand-headerText border-brand-primary' : 'bg-brand-accent text-slate-500 border-brand-border'}`}
+                    >
+                      <Activity size={11} />
+                    </button>
+                  </div>
+                </div>
+                <div style={{ height: assetCompositionView === 'chart' ? '200px' : `${assetCompositionHeight}px` }} className="w-full relative transition-all duration-500">
+                  {assetCompositionView === 'orchard' ? (
+                    <AssetTree wealthItems={wealthItems} currency={settings.currency} height={assetCompositionHeight} />
+                  ) : assetCompositionView === 'sketch' ? (
+                    <LineDrawingTree wealthItems={wealthItems} currency={settings.currency} height={assetCompositionHeight} />
+                  ) : (
+                    <div className="-ml-8 h-48">
+                      <ResponsiveContainer width="115%" height="100%">
+                        <BarChart layout="vertical" data={stats.assetChartData} margin={{ top: 5, right: 60, left: 20, bottom: 5 }}>
+                          <XAxis type="number" hide />
+                          <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 900, fill: '#64748b' }} width={80} />
+                          <Tooltip cursor={{fill: 'transparent'}} contentStyle={{ backgroundColor: 'var(--brand-surface)', border: '1px solid var(--brand-border)', borderRadius: '12px', fontSize: '10px' }} />
+                          <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={18}>
+                            {stats.assetChartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={WEALTH_COLORS[entry.name] || '#6366f1'} />
+                            ))}
+                            <LabelList content={<CustomLabel currencySymbol={currencySymbol} position="right" />} />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </div>
+             </section>
+          </div>
+        ) : (
+          <div className="flex flex-col animate-slide-up h-full overflow-hidden">
+            {registryLayout === 'list' ? (
+              <div className="flex-1 flex flex-col overflow-y-auto no-scrollbar">
+                {(accountFilter === 'all' || accountFilter === 'assets') && (
+                  <>
+                    <div className="px-3 py-1.5 bg-brand-accent/50 border-b border-brand-border flex items-center justify-between sticky top-0 z-20 backdrop-blur-md">
+                       <div className="flex items-center gap-2">
+                          <ArrowUpRight size={10} className="text-emerald-500" />
+                          <span className="text-[10px] font-medium text-emerald-500 uppercase tracking-[0.3em]">Capital Assets</span>
+                       </div>
+                       <span className="text-[10px] font-medium text-emerald-500 tracking-widest">{currencySymbol}{Math.round(stats.totalAssets).toLocaleString()}</span>
+                    </div>
+                    
+                    <div className="divide-y divide-brand-border">
+                       {Object.keys(assetGroups).sort().map(group => {
+                         const total = assetGroups[group].reduce((s,i)=>s+i.value,0);
+                         return (
+                           <div key={group} className="bg-brand-surface">
+                             <div className="px-3 py-1 bg-brand-accent/20 flex justify-between items-center border-b border-brand-border">
+                               <span className="text-[9px] font-medium text-black dark:text-white uppercase tracking-widest">{group}</span>
+                               <span className="text-[9px] font-medium text-emerald-500 tracking-widest">
+                                 {currencySymbol}{Math.round(total).toLocaleString()}
+                               </span>
+                             </div>
+                             {assetGroups[group].map(item => (
+                               <UltraCompactRow 
+                                 key={item.id} 
+                                 item={item} 
+                                 unpaidBills={accountBillsInfo[item.id]?.amount || 0}
+                                 relevantBillDate={accountBillsInfo[item.id]?.earliestDueDate}
+                                 currencySymbol={currencySymbol} 
+                                 onClick={() => onEditAccount(item)} 
+                               />
+                             ))}
+                           </div>
+                         );
+                       })}
+                    </div>
+                  </>
+                )}
+
+                {(accountFilter === 'all' || accountFilter === 'liabilities') && (
+                  <>
+                    <div className="px-3 py-1.5 bg-brand-accent/50 border-y border-brand-border flex items-center justify-between mt-2 sticky top-0 z-20 backdrop-blur-md">
+                       <div className="flex items-center gap-2">
+                          <ArrowDownRight size={10} className="text-rose-500" />
+                          <span className="text-[10px] font-medium text-rose-500 uppercase tracking-[0.3em]">Debt Obligations</span>
+                       </div>
+                       <span className="text-[10px] font-medium text-rose-500 tracking-widest">{currencySymbol}{Math.round(stats.totalLiabilities).toLocaleString()}</span>
+                    </div>
+
+                    <div className="divide-y divide-brand-border">
+                       {Object.keys(liabilityGroups).sort().map(group => {
+                         const total = liabilityGroups[group].reduce((s,i)=>s+i.value,0);
+                         return (
+                           <div key={group} className="bg-brand-surface">
+                             <div className="px-3 py-1 bg-brand-accent/20 flex justify-between items-center border-b border-brand-border">
+                               <span className="text-[9px] font-medium text-black dark:text-white uppercase tracking-widest">{group}</span>
+                               <span className="text-[9px] font-medium text-rose-500 tracking-widest">
+                                 {currencySymbol}{Math.round(total).toLocaleString()}
+                               </span>
+                             </div>
+                             {liabilityGroups[group].map(item => (
+                               <UltraCompactRow 
+                                 key={item.id} 
+                                 item={item} 
+                                 unpaidBills={accountBillsInfo[item.id]?.amount || 0}
+                                 relevantBillDate={accountBillsInfo[item.id]?.earliestDueDate}
+                                 currencySymbol={currencySymbol} 
+                                 onClick={() => onEditAccount(item)} 
+                               />
+                             ))}
+                           </div>
+                         );
+                       })}
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : registryLayout === 'bento' ? (
+              <div className="flex-1 flex flex-col overflow-y-auto no-scrollbar p-2 space-y-3">
+                {(accountFilter === 'all' || accountFilter === 'assets') && (
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <ArrowUpRight size={11} className="text-emerald-500" />
+                      <span className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.3em]">Capital Assets</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 items-start">
+                      {Object.entries(assetGroups).sort().map(([group, items]) => (
+                        <CategoryCard 
+                          key={group} 
+                          category={group} 
+                          items={items} 
+                          type="asset" 
+                          currencySymbol={currencySymbol} 
+                          onEdit={onEditAccount} 
+                          accountBills={accountBillsInfo} 
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(accountFilter === 'all' || accountFilter === 'liabilities') && (
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <ArrowDownRight size={11} className="text-rose-500" />
+                      <span className="text-[9px] font-black text-rose-500 uppercase tracking-[0.3em]">Debt Obligations</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 items-start">
+                      {Object.entries(liabilityGroups).sort().map(([group, items]) => (
+                        <CategoryCard 
+                          key={group} 
+                          category={group} 
+                          items={items} 
+                          type="liability" 
+                          currencySymbol={currencySymbol} 
+                          onEdit={onEditAccount} 
+                          accountBills={accountBillsInfo} 
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <div className={`grid ${accountFilter === 'all' ? 'grid-cols-2' : 'grid-cols-1'} flex-1 gap-x-2 px-2 py-2 overflow-y-auto no-scrollbar items-start`}>
+                  {(accountFilter === 'all' || accountFilter === 'assets') && (
+                    <div className="flex flex-col">
+                      <div className="flex flex-col pb-1 mb-1 sticky top-0 bg-brand-bg/95 backdrop-blur-md z-20 border-b border-brand-border">
+                        <div className="flex justify-between items-end">
+                          <span className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.2em]">Capital Assets</span>
+                          <span className="text-[9px] font-bold text-emerald-500 tracking-widest">{currencySymbol}{Math.round(stats.totalAssets).toLocaleString()}</span>
+                        </div>
+                        {stats.asOnDate && (
+                          <span className="text-[7px] font-medium text-slate-400 italic mt-0.5">As on {stats.asOnDate}</span>
+                        )}
+                      </div>
+                      <div className="space-y-0.5">
+                        {renderSideBySideGroups(assetGroups, 'asset')}
+                      </div>
+                    </div>
+                  )}
+
+                  {(accountFilter === 'all' || accountFilter === 'liabilities') && (
+                    <div className="flex flex-col">
+                      <div className="flex justify-between items-end pb-1 mb-1 sticky top-0 bg-brand-bg/95 backdrop-blur-md z-20 border-b border-brand-border">
+                        <span className="text-[9px] font-black text-rose-500 uppercase tracking-[0.2em]">Debt Obligations</span>
+                        <span className="text-[9px] font-bold text-rose-500 tracking-widest">{currencySymbol}{Math.round(stats.totalLiabilities).toLocaleString()}</span>
+                      </div>
+                      <div className="space-y-0.5">
+                        {renderSideBySideGroups(liabilityGroups, 'liability')}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-brand-surface text-brand-text px-3 py-2 shrink-0 flex items-center justify-between gap-4 border-t border-brand-border">
+          <div className="flex items-center gap-1.5">
+             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+             <span className="text-[8px] font-black uppercase tracking-widest opacity-60">System Synced</span>
+          </div>
+          <span className="text-[9px] font-black uppercase tracking-[0.2em]">
+            Net Worth: {currencySymbol}{Math.round(stats.netWorth).toLocaleString()}
+          </span>
+      </div>
+    </div>
+  );
+};
+
+export default Accounts;

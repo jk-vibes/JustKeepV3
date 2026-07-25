@@ -1,0 +1,10 @@
+{
+  "name": "JustKeepV3",
+  "description": "High-fidelity AI personal finance tracker inspired by Just Knock design aesthetics.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

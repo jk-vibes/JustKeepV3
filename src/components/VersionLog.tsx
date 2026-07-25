@@ -1,0 +1,166 @@
+import React, { ReactNode } from 'react';
+import { X, Milestone, CheckCircle2, Star } from 'lucide-react';
+import { triggerHaptic } from '../utils/haptics';
+
+interface VersionLogProps {
+  onClose: () => void;
+}
+
+interface LogEntry {
+  version: string;
+  date: string;
+  changes: string[];
+}
+
+const VERSION_HISTORY: LogEntry[] = [
+  {
+    version: '3.0',
+    date: 'JUL 25, 2026',
+    changes: [
+      '⭐ AI Neural Finance Suite: Full integration of Google Gemini API for intelligent SMS/statement transaction parsing, automated rule learning, and interactive Ask AI financial advice.',
+      '⭐ Chronological Budgeting & Smart Avoids: Real-time spending threshold tracking with automatic budget alerts at 80% usage and chronological "Avoid" tagging for over-budget transactions.',
+      '⭐ Multi-Account Registry & Wealth Tracking: Comprehensive wealth item management with statement ingestion per account, value history graphs, and automated internal capital rebalancing.',
+      '⭐ Flexible Taxonomy & Tag Manager: Dynamic custom category registration, sub-category grouping, and 3-tier bucket alignment (Needs, Wants, Savings).',
+      '⭐ High-Density Analytics & Heatmaps: Interactive checkerboard daily expense grid, weekly expenditure pulse chart, and side-by-side spend variance engine.',
+      '⭐ Multi-Hero Visual Themes: 5 customizable themes (Batman, Moon, Spiderman, Captain America, Naruto) with haptic feedback, data backup/restore, and local persistence.'
+    ]
+  },
+  {
+    version: '2.0',
+    date: 'MAR 14, 2026',
+    changes: [
+      '⭐ Chronological Budgeting: Refined "Avoid" tagging logic to use running totals ordered by date. Only specific transactions that trigger overspending are flagged, keeping your within-budget history clean.',
+      '⭐ Registry Totals: Added a dynamic, filter-aware total summary at the bottom of the Ledger for instant visibility of your net balance.',
+      '⭐ Global Date Visibility: Enabled transaction dates for all ledger entries across all view densities for improved scannability.',
+      '⭐ UI Polish: Enhanced Dashboard layout with optimized widget spacing and a cleaner, borderless header interface.',
+      'System Calibration: Synchronized budget limits and category goals with the new chronological spending engine.'
+    ]
+  },
+  {
+    version: '.1.3.1',
+    date: 'FEB 22, 2026',
+    changes: [
+      '⭐ Visual Hierarchy: Swapped font colors in the Account screen. Group headers now feature high-contrast black/white text, while account entries use a subtle gray for better scannability.',
+      '⭐ Robust Registry: Enhanced the Add/Edit Account workflow with improved validation and non-blocking custom category creation.',
+      '⭐ Data Integrity: Implemented strict deduplication logic when loading mock data to prevent duplicate registry keys.',
+      '⭐ UI Refinement: Optimized account entry rows with theme-aware color logic for both light and dark modes.',
+      'System Stability: Fixed a bug where saving accounts with custom classifications would occasionally fail to trigger UI updates.'
+    ]
+  },
+  {
+    version: '1.3.0',
+    date: 'FEB 14, 2026',
+    changes: [
+      '⭐ Non-Blocking Ingestion: Integrated CSV and text logs directly into the Ledger header with a real-time background progress indicator.',
+      '⭐ Weekly Pulse: Added a "Weekly Expenditure Pulse" chart to Ledger analytics for identifying mid-month spending surges.',
+      '⭐ Explicit Bucketing: Moved Needs, Wants, Savings, and Avoids labels to dedicated high-visibility badges on the right side of every record.',
+      '⭐ Logic Calibration: Synchronized AI categorization and budget planner to use strict "Savings" terminology for accurate goal tracking.',
+      'Background Synchronization: Removed blocking full-screen overlays during file processing for a smoother multi-tasking experience.'
+    ]
+  },
+  {
+    version: '1.2.6',
+    date: 'FEB 9, 2026',
+    changes: [
+      '⭐ Simplified Registry: Removed batch selection and bulk delete functionality for a more stable, focused auditing experience.',
+      '⭐ Spend Variance Engine: Integrated a side-by-side monthly comparison bar chart in the Ledger analytics view.',
+      '⭐ Allocation Labels: Enabled radial percentage labels on the pie chart for instant visibility of spending distribution.',
+      '⭐ Context Awareness: The Ledger now displays transaction notes directly in the feed to improve source auditing.',
+      'Field Refinement: Renamed "Source Context" to "Notes" across all entry forms for clearer terminology.'
+    ]
+  },
+  {
+    version: '1.2.5',
+    date: 'FEB 8, 2026',
+    changes: [
+      '⭐ High-Density Overhaul: Reduced all form padding and minimized font sizes for maximum mobile keyboard visibility.',
+      '⭐ Specific Modal Routing: Removed the universal AddRecord popup in favor of specialized, lightweight Add/Edit modals for Expenses, Incomes, Bills, and Accounts.',
+      '⭐ Trinity Row Selector: Merged Bucket, Category, and Sub-Category into a single horizontal selection row for lightning-fast entry.',
+      '⭐ Custom Selection UI: Replaced standard system dropdowns with compact, styled menu buttons that look and feel premium.',
+      'Refined Keyboard Experience: Optimized form scroll areas so action buttons remain reachable during high-density input.'
+    ]
+  },
+  {
+    version: '1.2.4',
+    date: 'FEB 7, 2026',
+    changes: [
+      '⭐ Calibrated Moon theme contrast: The version badge now features high-visibility black text on white backgrounds.',
+      '⭐ Ledger Stability: Refactored arithmetic logic to enforce strict type safety and eliminate rounding errors.',
+      'Refined Header Interface: Streamlined the header by removing redundant load triggers.',
+      'Navbar Logic: Enhanced the Dashboard briefcase fill to correctly utilize theme-aware accent colors.',
+      'System Handshake: Stabilized application boot-up by resolving default export syntax inconsistencies.'
+    ]
+  }
+];
+
+const VersionLog: React.FC<VersionLogProps> = ({ onClose }) => {
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 backdrop-blur-md">
+      <div className="absolute inset-0 bg-black/40" onClick={() => { triggerHaptic(); onClose(); }} />
+      
+      <div className="relative w-full max-w-sm bg-white dark:bg-slate-900 rounded-[32px] shadow-2xl overflow-hidden flex flex-col max-h-[75dvh] animate-slide-up border border-white/10">
+        <div className="p-6 border-b dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/30">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-500 text-white rounded-xl">
+              <Milestone size={18} />
+            </div>
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-widest dark:text-white">Build History</h3>
+              <p className="text-[8px] font-black text-slate-400 uppercase mt-0.5">Deployment Log</p>
+            </div>
+          </div>
+          <button onClick={() => { triggerHaptic(); onClose(); }} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full text-slate-400 transition-all active:scale-90">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto no-scrollbar p-6 space-y-8">
+          {VERSION_HISTORY.map((entry, idx) => (
+            <div key={entry.version} className="relative pl-6">
+              {idx !== VERSION_HISTORY.length - 1 && (
+                <div className="absolute left-[7px] top-4 bottom-[-32px] w-[2px] bg-slate-100 dark:bg-slate-800" />
+              )}
+              
+              <div className={`absolute left-0 top-1 w-4 h-4 rounded-full border-4 ${idx === 0 ? 'bg-brand-primary border-blue-100 dark:border-blue-900/30' : 'bg-slate-200 dark:bg-slate-700 border-white dark:border-slate-900'}`} />
+
+              <div className="space-y-3">
+                <div className="flex items-baseline gap-2">
+                  <h4 className="text-sm font-black text-slate-900 dark:text-white tracking-tighter">
+                    {entry.version.startsWith('v') ? entry.version : `v${entry.version}`}
+                  </h4>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{entry.date}</span>
+                </div>
+                
+                <div className="space-y-2.5">
+                  {entry.changes.map((change, cIdx) => {
+                    const isMajor = change.startsWith('⭐');
+                    const cleanText = isMajor ? change.substring(2).trim() : change;
+                    
+                    return (
+                      <div key={cIdx} className="flex gap-2">
+                        {isMajor ? (
+                          <Star size={10} className="text-amber-500 fill-amber-500 shrink-0 mt-0.5" />
+                        ) : (
+                          <CheckCircle2 size={10} className="text-slate-300 dark:text-slate-600 shrink-0 mt-0.5" />
+                        )}
+                        <p className={`text-[11px] leading-relaxed tracking-tight ${isMajor ? 'font-bold text-slate-900 dark:text-slate-100' : 'font-medium text-slate-500 dark:text-slate-400'}`}>
+                          {cleanText}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="p-4 bg-slate-50 dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800 text-center">
+           <p className="text-[9px] font-black text-slate-300 dark:text-slate-700 uppercase tracking-[0.2em]">Just Keep It • Personal Finance</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default VersionLog;
