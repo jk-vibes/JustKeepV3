@@ -6,10 +6,10 @@ import {
   Maximize2, Minimize2, Layout, TrendingUp,
   ChevronRight, Tag, Percent, Loader2, BrainCircuit,
   Key, Eye, EyeOff, Bot, Activity, BarChart2, CheckCircle2,
-  Power, RefreshCw, Cpu, Flame, Lock
+  Power, RefreshCw, Cpu, Flame, Lock, Coins
 } from 'lucide-react';
 import { triggerHaptic } from '../utils/haptics';
-import { getCurrencySymbol } from '../constants';
+import { getCurrencySymbol, SUPPORTED_CURRENCIES } from '../constants';
 import { NarutoIcon, SpiderIcon, CaptainAmericaIcon, BatmanIcon, MoonIcon } from './ThemeSymbols';
 import { getDailyTokenUsage, clearTokenUsageHistory } from '../services/geminiService';
 
@@ -44,7 +44,7 @@ interface SettingsProps {
 }
 
 const Settings: React.FC<SettingsProps> = ({ 
-  settings, onLogout, onReset, onUpdateAppTheme, 
+  settings, onLogout, onReset, onUpdateAppTheme, onUpdateCurrency,
   onExport, onRestore, onLoadMockData, onPurgeMockData,
   onUpdateDensity, onUpdateBaseIncome, onUpdateSplit, onOpenCategoryManager,
   onUpdateAISettings
@@ -242,6 +242,31 @@ const Settings: React.FC<SettingsProps> = ({
                 <Sparkles size={8} /> Autosaved
               </span>
             </div>
+            {/* Currency Selector */}
+            <div className="space-y-2">
+               <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1 flex items-center justify-between">
+                 <span>Active Currency Protocol</span>
+                 <span className="text-brand-primary font-black">{settings.currency} ({getCurrencySymbol(settings.currency)})</span>
+               </p>
+               <div className="grid grid-cols-5 gap-1.5 bg-brand-accent p-1.5 rounded-xl border border-brand-border">
+                 {SUPPORTED_CURRENCIES.map(curr => (
+                   <button
+                     key={curr.code}
+                     onClick={() => { triggerHaptic(); onUpdateCurrency(curr.code); }}
+                     title={curr.name}
+                     className={`py-2 px-1 rounded-lg text-center flex flex-col items-center justify-center transition-all ${
+                       settings.currency === curr.code
+                         ? 'bg-brand-primary text-brand-headerText font-black shadow-md scale-[1.02]'
+                         : 'text-slate-500 hover:text-brand-text font-bold opacity-70 hover:opacity-100'
+                     }`}
+                   >
+                     <span className="text-xs font-black leading-none mb-0.5">{curr.symbol}</span>
+                     <span className="text-[7px] font-extrabold uppercase leading-none tracking-tighter">{curr.code}</span>
+                   </button>
+                 ))}
+               </div>
+            </div>
+
             <div className="space-y-2">
                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Baseline Income</p>
                <div className="relative">

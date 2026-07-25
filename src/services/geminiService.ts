@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { Expense, UserSettings, Category, WealthItem, BudgetItem, Bill, AIAgent, DailyTokenUsage } from "../types";
+import { getCurrencySymbol } from "../constants";
 
 const TOKEN_USAGE_KEY = 'jk_ai_token_history_v1';
 
@@ -288,11 +289,15 @@ export async function refineBatchTransactions(
 }
 
 export async function auditTransaction(expense: Expense, currency: string, budgetContext?: string, settings?: UserSettings) {
+  const symbol = getCurrencySymbol(currency);
   const prompt = `
     Role: Strict "Daddy Mind" financial auditor.
     Audit transaction:
-    Merchant: ${expense.merchant || 'Unknown'}, Amount: ${Math.round(expense.amount)} ${currency}, Category: ${expense.category}.
+    Merchant: ${expense.merchant || 'Unknown'}, Amount: ${symbol}${Math.round(expense.amount)} (${currency}), Category: ${expense.category}.
     ${budgetContext ? `BUDGET CONTEXT: ${budgetContext}` : ''}
+    
+    CRITICAL CURRENCY MANDATE:
+    If your insight text references any monetary amounts or costs, ALWAYS use the symbol '${symbol}' (${currency}). DO NOT output dollar signs ('$') or refer to dollars unless currency is explicitly USD.
     Return JSON.
   `;
 
@@ -336,10 +341,21 @@ export async function getFatherlyAdvice(
     .filter(e => new Date(e.date).getMonth() === m && new Date(e.date).getFullYear() === y)
     .reduce((sum, e) => sum + e.amount, 0);
 
+  const symbol = getCurrencySymbol(settings.currency);
+
   const prompt = `
-    Role: Wise father advisor.
-    Assets: ${Math.round(assets)}, Debt: ${Math.round(liabilities)}, Spent: ${Math.round(recentSpend)}, Income: ${Math.round(settings.monthlyIncome)}.
-    Give actionable, firm advice under 30 words.
+    Role: Wise father advisor ("Daddy Mind").
+    User's Primary Currency: ${settings.currency} (Symbol: '${symbol}').
+
+    Financial Snapshot:
+    - Total Assets: ${symbol}${Math.round(assets)} ${settings.currency}
+    - Total Debt: ${symbol}${Math.round(liabilities)} ${settings.currency}
+    - Spent This Month: ${symbol}${Math.round(recentSpend)} ${settings.currency}
+    - Monthly Income: ${symbol}${Math.round(settings.monthlyIncome)} ${settings.currency}
+
+    Instructions:
+    1. Give actionable, firm, wise fatherly advice in under 30 words.
+    2. ABSOLUTE CURRENCY MANDATE: Whenever you mention monetary figures or costs in your advice text, you MUST use the currency symbol '${symbol}' (or code ${settings.currency}). NEVER use '$' or refer to 'dollars' unless the user's currency is explicitly USD.
   `;
 
   try {
@@ -503,7 +519,24 @@ export async function getDecisionAdvice(
   const y = new Date().getFullYear();
   const currentMonthSpent = expenses.filter(e => new Date(e.date).getMonth() === m && new Date(e.date).getFullYear() === y).reduce((sum, e) => sum + e.amount, 0);
 
-  const prompt = `Evaluate: "${query}". NetWorth ${netWorth}, Assets ${assets}, Debt ${liabilities}, Spent ${currentMonthSpent}. Return JSON.`;
+  const symbol = getCurrencySymbol(settings.currency);
+
+  const prompt = `
+    Role: Strict "Daddy Mind" financial auditor and decision advisor.
+    User's Currency: ${settings.currency} (Symbol: '${symbol}')
+    Financial Snapshot:
+    - Net Worth: ${symbol}${Math.round(netWorth)} ${settings.currency}
+    - Assets: ${symbol}${Math.round(assets)} ${settings.currency}
+    - Debt: ${symbol}${Math.round(liabilities)} ${settings.currency}
+    - Monthly Spent: ${symbol}${Math.round(currentMonthSpent)} ${settings.currency}
+
+    Evaluate purchase/decision query: "${query}".
+
+    ABSOLUTE CURRENCY MANDATE:
+    If your reasoning or action plan mentions any dollar/currency amounts, you MUST use the symbol '${symbol}' (${settings.currency}). DO NOT output '$' or refer to 'dollars' unless user currency is explicitly USD.
+
+    Return JSON matching schema.
+  `;
 
   try {
     const res = await generateContentWithActiveAgent(prompt, {
@@ -632,9 +665,14 @@ export async function analyzeBudgetSpending(
     else if (e.category === 'Savings') totals.Savings += e.amount;
   });
 
+  const symbol = getCurrencySymbol(currency);
   const prompt = `
     Role: Strict "Daddy Mind" financial auditor.
-    Income: ${currency}${monthlyIncome}, Spent Needs: ${currency}${totals.Needs}, Wants: ${currency}${totals.Wants}, Savings: ${currency}${totals.Savings}, Wasted: ${currency}${totals.Avoids}.
+    User's Primary Currency: ${currency} (Symbol: '${symbol}')
+    Income: ${symbol}${Math.round(monthlyIncome)} ${currency}, Spent Needs: ${symbol}${Math.round(totals.Needs)}, Wants: ${symbol}${Math.round(totals.Wants)}, Savings: ${symbol}${Math.round(totals.Savings)}, Wasted: ${symbol}${Math.round(totals.Avoids)}.
+    
+    STRICT CURRENCY MANDATE:
+    All insights, messages, and actionable tips MUST use the symbol '${symbol}' (${currency}) when referencing amounts. DO NOT output '$' or refer to 'dollars' unless currency is explicitly USD.
     Return JSON.
   `;
 

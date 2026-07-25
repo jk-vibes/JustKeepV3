@@ -84,7 +84,7 @@ const AskMe: React.FC<AskMeProps> = ({ settings, wealthItems, expenses, onCancel
                   autoFocus
                   value={query} 
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="e.g. Should I buy a Macbook Pro for 1.5 lakhs today?"
+                  placeholder={`e.g. Should I buy a laptop for ${currencySymbol}1,500 today?`}
                   className={inputClass}
                 />
               </div>
