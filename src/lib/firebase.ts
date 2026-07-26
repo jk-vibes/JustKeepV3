@@ -12,11 +12,15 @@ import {
   initializeFirestore,
   getFirestore, 
   persistentLocalCache,
+  disableNetwork,
+  setLogLevel,
   doc, 
   setDoc, 
   getDoc, 
   onSnapshot 
 } from 'firebase/firestore';
+
+setLogLevel('error');
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = getApps().length > 0 ? getApp() : (firebaseConfig ? initializeApp(firebaseConfig) : null);
@@ -45,6 +49,7 @@ export {
   signInWithPopup,
   onAuthStateChanged,
   signOut,
+  disableNetwork,
   doc,
   setDoc,
   getDoc,

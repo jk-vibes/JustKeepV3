@@ -690,10 +690,11 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </div>
                 </div>
 
-                <div className="flex justify-start md:justify-center items-center py-0.5 overflow-x-auto no-scrollbar">
+                <div className="flex justify-start md:justify-center items-center py-2 overflow-x-auto no-scrollbar">
                   <div className="flex py-0.5 gap-1.5 items-start shrink-0">
                     {/* Day Labels Column */}
                     <div className="sticky left-0 bg-brand-surface pr-1.5 flex flex-col gap-0 text-right font-mono text-[7px] font-black text-slate-500 dark:text-slate-400 w-4 shrink-0 z-10">
+                      <div className="h-4" /> {/* Spacer for Top Months Row */}
                       {["S", "M", "T", "W", "T", "F", "S"].map((day, idx) => (
                         <div key={idx} className="h-3 flex items-center justify-end leading-none">
                           {day}
@@ -703,6 +704,34 @@ const Dashboard: React.FC<DashboardProps> = ({
 
                     {/* Checker Grid Column */}
                     <div className="flex flex-col gap-0">
+                      {/* Top Months Row */}
+                      <div className="flex gap-[2px] h-4 items-end mb-0.5">
+                        {monthlySpendingGrid[0]?.map((_, wIdx) => {
+                          const cellDate = monthlySpendingGrid[0][wIdx]?.date;
+                          if (!cellDate) return null;
+
+                          const prevCellDate = wIdx > 0 ? monthlySpendingGrid[0][wIdx - 1]?.date : null;
+                          const isNewMonth =
+                            wIdx === 0 ||
+                            (prevCellDate &&
+                              (cellDate.getMonth() !== prevCellDate.getMonth() ||
+                                cellDate.getFullYear() !== prevCellDate.getFullYear()));
+
+                          const monthLabel = `${String(cellDate.getMonth() + 1).padStart(2, "0")}/${String(cellDate.getFullYear()).slice(-2)}`;
+
+                          return (
+                            <div key={wIdx} className="w-3 relative shrink-0 h-4 flex items-end">
+                              {isNewMonth && (
+                                <span className="absolute left-0 bottom-0 text-[8px] font-mono font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap leading-none select-none z-10">
+                                  {monthLabel}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Checker Grid Rows */}
                       {monthlySpendingGrid.map((row, dIdx) => (
                         <div key={dIdx} className="flex gap-[2px] h-3 items-center">
                           {row.map((cell, wIdx) => {
@@ -737,6 +766,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                               year: "numeric"
                             });
 
+                            const isTopRow = dIdx <= 1;
+
                             return (
                               <div key={wIdx} className="relative group h-3 flex items-center">
                                 <button
@@ -754,13 +785,23 @@ const Dashboard: React.FC<DashboardProps> = ({
                                   title={`${formattedDate}: ${totalSpent > 0 ? `${currencySymbol}${Math.round(totalSpent).toLocaleString()}` : "No spend"}`}
                                 />
                                 {/* Mouseover Tooltip */}
-                                <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex flex-col items-center z-30 whitespace-nowrap">
-                                  <div className="bg-slate-900/95 text-white dark:bg-slate-800 dark:text-slate-100 text-[9px] font-mono font-black px-2 py-1 rounded-md shadow-lg border border-slate-700/50 dark:border-slate-600/50 leading-tight">
-                                    <span className="opacity-75 text-[8px] mr-1">{date.toLocaleDateString("default", { month: "short", day: "numeric" })}:</span>
-                                    <span className="text-brand-primary font-black">{totalSpent > 0 ? `${currencySymbol}${Math.round(totalSpent).toLocaleString()}` : "No spend"}</span>
+                                {isTopRow ? (
+                                  <div className="pointer-events-none absolute top-full left-1/2 -translate-x-1/2 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex flex-col items-center z-30 whitespace-nowrap">
+                                    <div className="w-1.5 h-1.5 bg-slate-900/95 dark:bg-slate-800 rotate-45 -mb-0.5 border-l border-t border-slate-700/50 dark:border-slate-600/50"></div>
+                                    <div className="bg-slate-900/95 text-white dark:bg-slate-800 dark:text-slate-100 text-[9px] font-mono font-black px-2 py-1 rounded-md shadow-lg border border-slate-700/50 dark:border-slate-600/50 leading-tight">
+                                      <span className="opacity-75 text-[8px] mr-1">{date.toLocaleDateString("default", { month: "short", day: "numeric" })}:</span>
+                                      <span className="text-brand-primary font-black">{totalSpent > 0 ? `${currencySymbol}${Math.round(totalSpent).toLocaleString()}` : "No spend"}</span>
+                                    </div>
                                   </div>
-                                  <div className="w-1.5 h-1.5 bg-slate-900/95 dark:bg-slate-800 rotate-45 -mt-0.5 border-r border-b border-slate-700/50 dark:border-slate-600/50"></div>
-                                </div>
+                                ) : (
+                                  <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex flex-col items-center z-30 whitespace-nowrap">
+                                    <div className="bg-slate-900/95 text-white dark:bg-slate-800 dark:text-slate-100 text-[9px] font-mono font-black px-2 py-1 rounded-md shadow-lg border border-slate-700/50 dark:border-slate-600/50 leading-tight">
+                                      <span className="opacity-75 text-[8px] mr-1">{date.toLocaleDateString("default", { month: "short", day: "numeric" })}:</span>
+                                      <span className="text-brand-primary font-black">{totalSpent > 0 ? `${currencySymbol}${Math.round(totalSpent).toLocaleString()}` : "No spend"}</span>
+                                    </div>
+                                    <div className="w-1.5 h-1.5 bg-slate-900/95 dark:bg-slate-800 rotate-45 -mt-0.5 border-r border-b border-slate-700/50 dark:border-slate-600/50"></div>
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
