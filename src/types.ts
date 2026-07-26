@@ -153,6 +153,7 @@ export interface UserSettings {
   isOnboarded: boolean;
   appTheme?: AppTheme;
   isCloudSyncEnabled: boolean;
+  isGoogleDriveSyncEnabled?: boolean;
   currency: string;
   lastSynced?: string;
   density?: DensityLevel;

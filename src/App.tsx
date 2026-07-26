@@ -31,6 +31,8 @@ import { triggerHaptic } from './utils/haptics';
 import { parseSmsLocally } from './utils/smsParser';
 import { generate12MonthData } from './utils/mockData';
 import { getFatherlyAdvice, batchProcessNewTransactions } from './services/geminiService';
+import { ensureFirebaseAuth, saveVaultToFirestore, loadVaultFromFirestore, subscribeToFirestoreVault } from './services/firebaseSync';
+import { syncToGoogleDrive, restoreFromGoogleDrive } from './services/cloudSync';
 
 const STORAGE_KEY = 'jk_budget_data_whole_num_v12';
 const APP_VERSION = 'v3.0';
@@ -41,6 +43,7 @@ const INITIAL_SETTINGS: UserSettings = {
   isOnboarded: true, 
   appTheme: 'Batman',
   isCloudSyncEnabled: false,
+  isGoogleDriveSyncEnabled: false,
   currency: 'INR',
   dataFilter: 'all',
   density: 'Compact',
@@ -512,6 +515,70 @@ const App: React.FC = () => {
     reader.readAsText(file);
   }, [showToast]);
 
+  const handleGoogleDriveSync = useCallback(async (): Promise<boolean> => {
+    if (!user?.accessToken) {
+      showToast("Google Drive authorization required. Please sign in with Google.", "warning");
+      return false;
+    }
+    triggerHaptic(50);
+    setIsSyncing(true);
+    try {
+      const syncedTime = await syncToGoogleDrive(user.accessToken, {
+        expenses,
+        incomes,
+        wealthItems,
+        budgetItems,
+        rules,
+        bills,
+        notifications,
+        settings,
+        recurringItems,
+      });
+      setSettings(prev => ({ ...prev, lastSynced: syncedTime }));
+      showToast("Successfully saved vault backup to Google Drive!", "success");
+      setIsSyncing(false);
+      return true;
+    } catch (err: any) {
+      setIsSyncing(false);
+      showToast("Google Drive backup failed. Please re-authenticate.", "error");
+      return false;
+    }
+  }, [user, expenses, incomes, wealthItems, budgetItems, rules, bills, notifications, settings, recurringItems, showToast]);
+
+  const handleGoogleDriveRestore = useCallback(async (): Promise<boolean> => {
+    if (!user?.accessToken) {
+      showToast("Google Drive authorization required. Please sign in with Google.", "warning");
+      return false;
+    }
+    triggerHaptic(50);
+    setIsSyncing(true);
+    try {
+      const restored = await restoreFromGoogleDrive(user.accessToken);
+      if (!restored) {
+        showToast("No vault backup file found on Google Drive.", "info");
+        setIsSyncing(false);
+        return false;
+      }
+      if (restored.settings) setSettings(prev => ({ ...INITIAL_SETTINGS, ...restored.settings }));
+      if (restored.expenses) setExpenses(restored.expenses);
+      if (restored.incomes) setIncomes(restored.incomes);
+      if (restored.wealthItems) setWealthItems(restored.wealthItems);
+      if (restored.bills) setBills(restored.bills);
+      if (restored.budgetItems) setBudgetItems(restored.budgetItems);
+      if (restored.rules) setRules(restored.rules);
+      if (restored.recurringItems) setRecurringItems(restored.recurringItems);
+      if (restored.notifications) setNotifications(restored.notifications);
+
+      showToast("Vault data successfully restored from Google Drive!", "success");
+      setIsSyncing(false);
+      return true;
+    } catch (err: any) {
+      setIsSyncing(false);
+      showToast("Restoration from Google Drive failed.", "error");
+      return false;
+    }
+  }, [user, showToast]);
+
   const visibleWealth = useMemo(() => {
     const list = settings.dataFilter === 'user' ? wealthItems.filter(w => !w.isMock) : settings.dataFilter === 'mock' ? wealthItems.filter(w => w.isMock) : wealthItems;
     return [...list]; // Return new reference to ensure re-renders
@@ -550,39 +617,133 @@ const App: React.FC = () => {
   }, [visibleExpenses, visibleIncomes, visibleWealth, visibleBudgetItems, visibleBills, settings, viewDate]);
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        const dedupe = (arr: any[]) => {
-          if (!Array.isArray(arr)) return [];
-          const seen = new Set();
-          return arr.filter(item => {
-            if (!item.id || seen.has(item.id)) return false;
-            seen.add(item.id);
-            return true;
-          });
-        };
+    let unsubscribe: (() => void) | undefined;
 
-        if (parsed.settings) setSettings(prev => ({ ...INITIAL_SETTINGS, ...parsed.settings }));
-        if (parsed.expenses) setExpenses(dedupe(parsed.expenses)); 
-        if (parsed.incomes) setIncomes(dedupe(parsed.incomes)); 
-        if (parsed.wealthItems) setWealthItems(dedupe(parsed.wealthItems));
-        if (parsed.bills) setBills(dedupe(parsed.bills)); 
-        if (parsed.budgetItems) setBudgetItems(dedupe(parsed.budgetItems)); 
-        if (parsed.rules) setRules(dedupe(parsed.rules));
-        if (parsed.recurringItems) setRecurringItems(dedupe(parsed.recurringItems)); 
-        if (parsed.notifications) setNotifications(dedupe(parsed.notifications));
-        if (parsed.user) { setUser(parsed.user); setIsAuthenticated(true); }
-        if (parsed.notifiedBudgetGoalIds) setNotifiedBudgetGoalIds(parsed.notifiedBudgetGoalIds);
-      } catch (e) {
-        console.error("Failed to load state", e);
+    const initDataAndFirebase = async () => {
+      let localUser: UserProfile | null = null;
+      const saved = localStorage.getItem(STORAGE_KEY);
+
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          const dedupe = (arr: any[]) => {
+            if (!Array.isArray(arr)) return [];
+            const seen = new Set();
+            return arr.filter(item => {
+              if (!item.id || seen.has(item.id)) return false;
+              seen.add(item.id);
+              return true;
+            });
+          };
+
+          if (parsed.settings) setSettings(prev => ({ ...INITIAL_SETTINGS, ...parsed.settings }));
+          if (parsed.expenses) setExpenses(dedupe(parsed.expenses)); 
+          if (parsed.incomes) setIncomes(dedupe(parsed.incomes)); 
+          if (parsed.wealthItems) setWealthItems(dedupe(parsed.wealthItems));
+          if (parsed.bills) setBills(dedupe(parsed.bills)); 
+          if (parsed.budgetItems) setBudgetItems(dedupe(parsed.budgetItems)); 
+          if (parsed.rules) setRules(dedupe(parsed.rules));
+          if (parsed.recurringItems) setRecurringItems(dedupe(parsed.recurringItems)); 
+          if (parsed.notifications) setNotifications(dedupe(parsed.notifications));
+          if (parsed.user) { 
+            localUser = parsed.user;
+            setUser(parsed.user); 
+            setIsAuthenticated(true); 
+          }
+          if (parsed.notifiedBudgetGoalIds) setNotifiedBudgetGoalIds(parsed.notifiedBudgetGoalIds);
+        } catch (e) {
+          console.error("Failed to load local state", e);
+        }
       }
-    }
-    setIsLoading(false);
+
+      // Initialize Firebase & Hydrate from Firestore Cloud Database
+      try {
+        const fbUser = await ensureFirebaseAuth();
+        const activeUserId = localUser?.id || fbUser?.uid || 'guest';
+
+        const cloudVault = await loadVaultFromFirestore(activeUserId);
+        if (cloudVault) {
+          const dedupe = (arr: any[]) => {
+            if (!Array.isArray(arr)) return [];
+            const seen = new Set();
+            return arr.filter(item => {
+              if (!item.id || seen.has(item.id)) return false;
+              seen.add(item.id);
+              return true;
+            });
+          };
+          if (cloudVault.settings) setSettings(prev => ({ ...INITIAL_SETTINGS, ...cloudVault.settings }));
+          if (cloudVault.expenses?.length) setExpenses(dedupe(cloudVault.expenses));
+          if (cloudVault.incomes?.length) setIncomes(dedupe(cloudVault.incomes));
+          if (cloudVault.wealthItems?.length) setWealthItems(dedupe(cloudVault.wealthItems));
+          if (cloudVault.bills?.length) setBills(dedupe(cloudVault.bills));
+          if (cloudVault.budgetItems?.length) setBudgetItems(dedupe(cloudVault.budgetItems));
+          if (cloudVault.rules?.length) setRules(dedupe(cloudVault.rules));
+          if (cloudVault.recurringItems?.length) setRecurringItems(dedupe(cloudVault.recurringItems));
+          if (cloudVault.notifications?.length) setNotifications(dedupe(cloudVault.notifications));
+        }
+
+        unsubscribe = subscribeToFirestoreVault(activeUserId, (updatedVault) => {
+          if (updatedVault) {
+            if (updatedVault.expenses) setExpenses(updatedVault.expenses);
+            if (updatedVault.incomes) setIncomes(updatedVault.incomes);
+            if (updatedVault.wealthItems) setWealthItems(updatedVault.wealthItems);
+            if (updatedVault.bills) setBills(updatedVault.bills);
+            if (updatedVault.budgetItems) setBudgetItems(updatedVault.budgetItems);
+          }
+        });
+      } catch (err) {
+        console.warn("Firebase sync skipped or offline:", err);
+      }
+
+      setIsLoading(false);
+    };
+
+    initDataAndFirebase();
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
 
-  useEffect(() => { if (!isLoading && !isResetting) { localStorage.setItem(STORAGE_KEY, JSON.stringify({ settings, expenses, incomes, wealthItems, bills, user, budgetItems, rules, recurringItems, notifications, notifiedBudgetGoalIds })); } }, [settings, expenses, incomes, wealthItems, bills, user, budgetItems, rules, recurringItems, notifications, notifiedBudgetGoalIds, isLoading, isResetting]);
+  useEffect(() => { 
+    if (!isLoading && !isResetting) { 
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ settings, expenses, incomes, wealthItems, bills, user, budgetItems, rules, recurringItems, notifications, notifiedBudgetGoalIds })); 
+      
+      const activeUserId = user?.id || 'guest';
+      const timer = setTimeout(() => {
+        saveVaultToFirestore(activeUserId, {
+          expenses,
+          incomes,
+          wealthItems,
+          budgetItems,
+          rules,
+          bills,
+          notifications,
+          settings,
+          recurringItems
+        });
+
+        if (settings.isGoogleDriveSyncEnabled && user?.accessToken) {
+          syncToGoogleDrive(user.accessToken, {
+            expenses,
+            incomes,
+            wealthItems,
+            budgetItems,
+            rules,
+            bills,
+            notifications,
+            settings,
+            recurringItems
+          }).then(syncedTime => {
+            setSettings(prev => ({ ...prev, lastSynced: syncedTime }));
+          }).catch(e => console.warn("Google Drive auto-sync notice:", e));
+        }
+      }, 1500);
+
+      return () => clearTimeout(timer);
+    } 
+  }, [settings, expenses, incomes, wealthItems, bills, user, budgetItems, rules, recurringItems, notifications, notifiedBudgetGoalIds, isLoading, isResetting]);
 
   useEffect(() => { const root = window.document.documentElement; root.setAttribute('data-theme', settings.appTheme || 'Batman'); root.setAttribute('data-density', settings.density || 'Compact'); if (['Spiderman', 'Naruto'].includes(settings.appTheme || '')) { root.classList.remove('dark'); } else { root.classList.add('dark'); } }, [settings.appTheme, settings.density]);
 
@@ -872,7 +1033,33 @@ const App: React.FC = () => {
             }} />}
             {currentView === 'Rules' && <RulesEngine rules={rules.filter(r => settings.dataFilter === 'user' ? !r.isMock : settings.dataFilter === 'mock' ? r.isMock : true)} settings={settings} onAddRule={() => setIsAddingRule(true)} onEditRule={(r) => setEditingRule(r)} onDeleteRule={(id) => setRules(p => p.filter(r => r.id !== id))} />}
             {currentView === 'Notifications' && <NotificationPane notifications={notifications} onClose={() => setCurrentView('Dashboard')} onClear={() => setNotifications([])} isPage={true} />}
-            {currentView === 'Profile' && <Settings settings={settings} user={user} onLogout={() => setIsAuthenticated(false)} onReset={handleReset} onUpdateAppTheme={(t) => setSettings(s => ({ ...s, appTheme: t }))} onUpdateCurrency={(c) => setSettings(s => ({ ...s, currency: c }))} onUpdateBaseIncome={(income) => setSettings(s => ({ ...s, monthlyIncome: income }))} onUpdateSplit={(split) => setSettings(s => ({ ...s, split }))} onExport={handleExport} onRestore={handleRestore} onAddBulk={() => {}} isSyncing={isSyncing} onLoadMockData={handleLoadMockData} onPurgeMockData={handlePurgeMockData} onUpdateDensity={(d) => setSettings(s => ({ ...s, density: d }))} onOpenCategoryManager={() => setIsShowingCategoryManager(true)} onUpdateAISettings={(aiUpdates) => setSettings(s => ({ ...s, ...aiUpdates }))} onToggleTheme={() => {}} onSync={() => {}} />}
+            {currentView === 'Profile' && (
+              <Settings 
+                settings={settings} 
+                user={user} 
+                onLogout={() => setIsAuthenticated(false)} 
+                onReset={handleReset} 
+                onUpdateAppTheme={(t) => setSettings(s => ({ ...s, appTheme: t }))} 
+                onUpdateCurrency={(c) => setSettings(s => ({ ...s, currency: c }))} 
+                onUpdateBaseIncome={(income) => setSettings(s => ({ ...s, monthlyIncome: income }))} 
+                onUpdateSplit={(split) => setSettings(s => ({ ...s, split }))} 
+                onExport={handleExport} 
+                onRestore={handleRestore} 
+                onGoogleDriveSync={handleGoogleDriveSync}
+                onGoogleDriveRestore={handleGoogleDriveRestore}
+                onToggleGoogleDriveAutoSync={(enabled) => setSettings(s => ({ ...s, isGoogleDriveSyncEnabled: enabled }))}
+                onUpdateUser={(updated) => setUser(updated)}
+                onAddBulk={() => {}} 
+                isSyncing={isSyncing} 
+                onLoadMockData={handleLoadMockData} 
+                onPurgeMockData={handlePurgeMockData} 
+                onUpdateDensity={(d) => setSettings(s => ({ ...s, density: d }))} 
+                onOpenCategoryManager={() => setIsShowingCategoryManager(true)} 
+                onUpdateAISettings={(aiUpdates) => setSettings(s => ({ ...s, ...aiUpdates }))} 
+                onToggleTheme={() => {}} 
+                onSync={() => {}} 
+              />
+            )}
           </div>
           <Footer />
         </div>

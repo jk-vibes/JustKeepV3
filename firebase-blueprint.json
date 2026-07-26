@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "users": {
+      "description": "User profiles and financial vault storage",
+      "params": [
+        {
+          "name": "userId",
+          "description": "The unique user ID"
+        }
+      ],
+      "properties": [
+        {
+          "name": "email",
+          "type": "string",
+          "description": "User email address"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "description": "User display name"
+        },
+        {
+          "name": "updatedAt",
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        },
+        {
+          "name": "settings",
+          "type": "object",
+          "description": "User settings"
+        },
+        {
+          "name": "vaultData",
+          "type": "object",
+          "description": "Full snapshot of user financial vault (expenses, incomes, wealth items, rules, bills, recurring items, notifications)"
+        }
+      ]
+    }
+  }
+}

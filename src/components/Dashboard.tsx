@@ -693,7 +693,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <div className="flex justify-start md:justify-center items-center py-0.5 overflow-x-auto no-scrollbar">
                   <div className="flex py-0.5 gap-1.5 items-start shrink-0">
                     {/* Day Labels Column */}
-                    <div className="sticky left-0 bg-brand-surface pr-1.5 flex flex-col gap-[2px] text-right font-mono text-[7px] font-black text-slate-500 dark:text-slate-400 w-4 shrink-0 z-10">
+                    <div className="sticky left-0 bg-brand-surface pr-1.5 flex flex-col gap-0 text-right font-mono text-[7px] font-black text-slate-500 dark:text-slate-400 w-4 shrink-0 z-10">
                       {["S", "M", "T", "W", "T", "F", "S"].map((day, idx) => (
                         <div key={idx} className="h-3 flex items-center justify-end leading-none">
                           {day}
@@ -702,9 +702,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </div>
 
                     {/* Checker Grid Column */}
-                    <div className="flex flex-col gap-[2px]">
+                    <div className="flex flex-col gap-0">
                       {monthlySpendingGrid.map((row, dIdx) => (
-                        <div key={dIdx} className="flex gap-[2px]">
+                        <div key={dIdx} className="flex gap-[2px] h-3 items-center">
                           {row.map((cell, wIdx) => {
                             const { date, totalSpent, isHighSpend, isExtremeSpend, isAvoidSpend } = cell;
 
@@ -738,21 +738,30 @@ const Dashboard: React.FC<DashboardProps> = ({
                             });
 
                             return (
-                              <button
-                                key={wIdx}
-                                onClick={() => {
-                                  triggerHaptic(5);
-                                  if (isSelected) {
-                                    setSelectedGridDay(null);
-                                  } else {
-                                    setSelectedGridDay(cell);
-                                  }
-                                }}
-                                className={`w-3 h-3 rounded-sm relative transition-all duration-300 hover:scale-[1.2] active:scale-95 ${cellColor} ${
-                                  isSelected ? "ring-2 ring-white scale-110 z-10 shadow-md" : ""
-                                }`}
-                                title={`${formattedDate}: ${totalSpent > 0 ? `${currencySymbol}${Math.round(totalSpent).toLocaleString()}` : "No spend"}`}
-                              />
+                              <div key={wIdx} className="relative group h-3 flex items-center">
+                                <button
+                                  onClick={() => {
+                                    triggerHaptic(5);
+                                    if (isSelected) {
+                                      setSelectedGridDay(null);
+                                    } else {
+                                      setSelectedGridDay(cell);
+                                    }
+                                  }}
+                                  className={`w-3 h-3 rounded-sm transition-all duration-200 hover:scale-[1.25] active:scale-95 cursor-pointer shrink-0 ${cellColor} ${
+                                    isSelected ? "ring-2 ring-brand-primary scale-110 z-10 shadow-md" : ""
+                                  }`}
+                                  title={`${formattedDate}: ${totalSpent > 0 ? `${currencySymbol}${Math.round(totalSpent).toLocaleString()}` : "No spend"}`}
+                                />
+                                {/* Mouseover Tooltip */}
+                                <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex flex-col items-center z-30 whitespace-nowrap">
+                                  <div className="bg-slate-900/95 text-white dark:bg-slate-800 dark:text-slate-100 text-[9px] font-mono font-black px-2 py-1 rounded-md shadow-lg border border-slate-700/50 dark:border-slate-600/50 leading-tight">
+                                    <span className="opacity-75 text-[8px] mr-1">{date.toLocaleDateString("default", { month: "short", day: "numeric" })}:</span>
+                                    <span className="text-brand-primary font-black">{totalSpent > 0 ? `${currencySymbol}${Math.round(totalSpent).toLocaleString()}` : "No spend"}</span>
+                                  </div>
+                                  <div className="w-1.5 h-1.5 bg-slate-900/95 dark:bg-slate-800 rotate-45 -mt-0.5 border-r border-b border-slate-700/50 dark:border-slate-600/50"></div>
+                                </div>
+                              </div>
                             );
                           })}
                         </div>
@@ -761,20 +770,31 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </div>
                 </div>
 
+                {/* Clicked details panel showing itemized expenses */}
                 {selectedGridDay && (
                   <div className="bg-brand-accent/45 rounded-xl p-3 border border-brand-border/60 animate-kick text-left space-y-2 mt-1">
                     <div className="flex items-center justify-between border-b border-brand-border/30 pb-1.5 font-mono">
-                      <h4 className="text-[9px] font-black uppercase text-slate-700 dark:text-slate-300">
+                      <h4 className="text-[9px] font-black uppercase text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-brand-primary"></span>
                         {selectedGridDay.date.toLocaleDateString("default", { weekday: "long", month: "short", day: "numeric", year: "numeric" })} DETAILS
                       </h4>
-                      <span className="text-[9px] font-black text-brand-primary">
-                        Total: {currencySymbol}{Math.round(selectedGridDay.totalSpent).toLocaleString()}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-black text-brand-primary">
+                          Total: {currencySymbol}{Math.round(selectedGridDay.totalSpent).toLocaleString()}
+                        </span>
+                        <button
+                          onClick={() => setSelectedGridDay(null)}
+                          className="text-slate-400 hover:text-slate-200 text-[10px] font-black px-1.5 py-0.5 rounded bg-brand-accent border border-brand-border cursor-pointer"
+                          title="Close details"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     </div>
                     {selectedGridDay.expenses.length === 0 ? (
                       <p className="text-[8px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest text-center py-2 font-mono">No expenses logged on this day.</p>
                     ) : (
-                      <div className="max-h-24 overflow-y-auto no-scrollbar space-y-1 font-mono">
+                      <div className="max-h-28 overflow-y-auto no-scrollbar space-y-1 font-mono">
                         {selectedGridDay.expenses.map((exp: any) => (
                           <div key={exp.id} className="flex justify-between items-center text-[9px] font-bold bg-slate-100/80 dark:bg-black/20 p-1.5 rounded-lg border border-slate-200/50 dark:border-white/5">
                             <div className="flex items-center gap-1.5 min-w-0">
